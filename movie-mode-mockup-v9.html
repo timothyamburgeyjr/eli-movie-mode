@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Movie Mode v9 — Project Eli — FINAL HANDOFF</title>
+    <style>
+        :root {
+            --bg-deep: #0a0a0f;
+            --bg-surface: #12121c;
+            --bg-elevated: #1a1a2e;
+            --border: #252535;
+            --text-primary: #e8e8ee;
+            --text-secondary: #999;
+            --text-muted: #555566;
+            --accent: #6366f1;
+            --accent-hover: #4f46e5;
+            --user-bubble: #1e3a5f;
+            --eli-bubble: #172917;
+            --context-bg: #0e0e14;
+            --system-color: #555566;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --emote-color: #b8a0d8;
+            --emote-bg: rgba(120, 80, 180, 0.06);
+            --mood-dread: #8c1414;
+            --mood-tense: #3060b0;
+            --mood-humor: #b48c1e;
+            --mood-awe: #7040c0;
+            --mood-adrenaline: #c05020;
+            --mood-cozy: #a08830;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg-deep); color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            height: 100vh; height: 100dvh;
+            display: flex; flex-direction: column; overflow: hidden; position: relative;
+        }
+
+        /* ─── Mood Gradient ─── */
+        .mood-gradient {
+            position: fixed; inset: 0; pointer-events: none; z-index: 0;
+            transition: box-shadow 3s ease, background 3s ease, opacity 1s ease;
+        }
+        .mood-gradient[data-mood="dread"] { box-shadow: inset 0 0 250px 100px rgba(140,20,20,0.13); background: radial-gradient(ellipse at 50% 100%, rgba(100,10,10,0.06) 0%, transparent 70%); }
+        .mood-gradient[data-mood="tense"] { box-shadow: inset 0 0 250px 100px rgba(30,60,140,0.12); background: radial-gradient(ellipse at 50% 100%, rgba(20,40,100,0.06) 0%, transparent 70%); }
+        .mood-gradient[data-mood="humor"] { box-shadow: inset 0 0 250px 100px rgba(180,140,30,0.11); background: radial-gradient(ellipse at 50% 100%, rgba(140,110,20,0.05) 0%, transparent 70%); }
+        .mood-gradient[data-mood="awe"] { box-shadow: inset 0 0 250px 100px rgba(100,50,180,0.13); background: radial-gradient(ellipse at 50% 100%, rgba(80,30,150,0.06) 0%, transparent 70%); }
+        .mood-gradient[data-mood="adrenaline"] { box-shadow: inset 0 0 250px 100px rgba(200,80,20,0.12); background: radial-gradient(ellipse at 50% 100%, rgba(160,60,10,0.05) 0%, transparent 70%); }
+        .mood-gradient[data-mood="cozy"] { box-shadow: inset 0 0 250px 100px rgba(160,120,40,0.10); background: radial-gradient(ellipse at 50% 100%, rgba(130,100,30,0.05) 0%, transparent 70%); }
+        .mood-gradient.standby { opacity: 0.15 !important; }
+
+        /* ─── Start Screen ─── */
+        .start-screen {
+            position: fixed; inset: 0; z-index: 50; background: var(--bg-deep);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 20px; transition: opacity 0.4s;
+        }
+        .start-screen.hidden { opacity: 0; pointer-events: none; }
+        .start-logo { font-size: 3rem; }
+        .start-title { font-size: 1.4rem; font-weight: 700; }
+        .start-subtitle { font-size: 0.8rem; color: var(--text-muted); text-align: center; max-width: 260px; line-height: 1.5; }
+        .start-btn {
+            padding: 14px 40px; border-radius: 14px; background: var(--success); border: none; color: #fff;
+            font-size: 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.15s;
+        }
+        .start-btn:hover { background: #16a34a; }
+        .start-last-session { margin-top: 16px; padding: 12px 20px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px; text-align: center; }
+        .start-last-label { font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .start-last-title { font-size: 0.82rem; font-weight: 600; margin-top: 2px; }
+        .start-last-detail { font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; }
+
+        /* ─── Header ─── */
+        .header { background: var(--bg-surface); border-bottom: 1px solid var(--border); padding: 10px 14px 8px; flex-shrink: 0; position: relative; z-index: 2; }
+        .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+        .header-left { display: flex; align-items: center; gap: 8px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 6px var(--success); flex-shrink: 0; transition: background 0.4s, box-shadow 0.4s; }
+        .status-dot.standby { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+        .status-dot.off { background: #444; box-shadow: none; }
+        .header-left h1 { font-size: 1rem; font-weight: 700; }
+        .status-label { font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 4px; transition: all 0.4s; }
+        .status-label.live { color: var(--success); background: rgba(34,197,94,0.1); }
+        .status-label.standby { color: var(--warning); background: rgba(245,158,11,0.15); }
+        .status-label.ended { color: #666; background: rgba(68,68,68,0.15); }
+        .master-mood { display: flex; align-items: center; gap: 4px; margin-left: 4px; padding: 2px 8px; border-radius: 10px; transition: all 1s ease; }
+        .master-mood-dot { width: 6px; height: 6px; border-radius: 50%; transition: background 1s; }
+        .master-mood-label { font-size: 0.58rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; transition: color 1s; }
+        .header-actions { display: flex; gap: 6px; align-items: center; }
+        .icon-btn { width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; position: relative; }
+        .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .icon-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .icon-btn.standby-active { background: rgba(245,158,11,0.15); border-color: var(--warning); color: var(--warning); }
+        .icon-btn .tip { display: none; position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--bg-elevated); border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 0.6rem; color: var(--text-secondary); z-index: 10; }
+        .icon-btn:hover .tip { display: block; }
+
+        /* ─── Tri-state session button ─── */
+        .session-btn {
+            padding: 6px 14px; border-radius: 8px; font-size: 0.75rem; font-weight: 600; cursor: pointer;
+            display: flex; align-items: center; gap: 5px; transition: all 0.2s; border: 1px solid;
+        }
+        .session-btn.start { border-color: var(--success); color: var(--success); background: transparent; }
+        .session-btn.start:hover { background: var(--success); color: #fff; }
+        .session-btn.stop { border-color: var(--danger); color: var(--danger); background: transparent; }
+        .session-btn.stop:hover { background: var(--danger); color: #fff; }
+        .session-btn.clear { border-color: var(--text-muted); color: var(--text-muted); background: transparent; }
+        .session-btn.clear:hover { background: var(--bg-elevated); color: var(--text-secondary); }
+
+        .movie-bar { display: flex; align-items: center; gap: 8px; }
+        .movie-poster { width: 28px; height: 40px; border-radius: 4px; background: #222; flex-shrink: 0; overflow: hidden; }
+        .movie-meta { flex: 1; min-width: 0; }
+        .movie-title { font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .movie-sub { font-size: 0.68rem; color: var(--text-muted); display: flex; gap: 8px; align-items: center; }
+
+        /* ─── Exchange Counter ─── */
+        .exchange-counter {
+            font-size: 0.6rem; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+            background: rgba(99,102,241,0.08); color: var(--accent); white-space: nowrap;
+            transition: all 0.3s;
+        }
+        .exchange-counter.warning { color: var(--warning); background: rgba(245,158,11,0.1); }
+        .exchange-counter.danger { color: var(--danger); background: rgba(239,68,68,0.1); }
+
+        /* ─── Standby ─── */
+        .chat-area.standby-dim { opacity: 0.35; pointer-events: none; transition: opacity 0.6s; }
+
+        /* ─── Chat ─── */
+        .chat-area { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; scroll-behavior: smooth; position: relative; z-index: 1; transition: opacity 0.6s; }
+        .chat-area::-webkit-scrollbar { width: 3px; }
+        .chat-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        .msg-container { display: flex; flex-direction: column; gap: 2px; }
+        .msg-container.user-side { align-items: flex-end; }
+        .msg-container.eli-side { align-items: flex-start; }
+        .sender-line { display: flex; align-items: center; gap: 4px; padding: 0 4px; margin-bottom: 1px; }
+        .sender-name { font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+        .sender-name.tim-name { color: #60a0e0; }
+        .sender-name.eli-name { color: #4ade80; }
+        .msg-mood-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .msg-stoned { font-size: 0.45rem; display: flex; gap: 0; }
+        .msg-stoned .leaf { opacity: 0.2; }
+        .msg-stoned .leaf.on { opacity: 1; }
+        .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; word-wrap: break-word; }
+        .msg.user { background: var(--user-bubble); border-bottom-right-radius: 4px; }
+        .msg.eli { background: var(--eli-bubble); border-bottom-left-radius: 4px; }
+        .msg.system { align-self: center; background: transparent; color: var(--system-color); font-size: 0.75rem; font-style: italic; padding: 5px 0; max-width: 100%; }
+        .msg.system.standby-msg { color: var(--warning); }
+        .timestamp { font-size: 0.58rem; color: var(--text-muted); margin-top: 3px; display: block; text-align: right; }
+        .latency-badge { display: inline-block; font-size: 0.55rem; color: var(--text-muted); background: rgba(255,255,255,0.04); padding: 1px 4px; border-radius: 3px; margin-left: 4px; }
+        .emote-text { color: var(--emote-color); font-style: italic; font-size: 0.85rem; line-height: 1.55; padding: 6px 0; border-left: 2px solid rgba(120,80,180,0.25); padding-left: 10px; margin-bottom: 6px; background: var(--emote-bg); border-radius: 0 6px 6px 0; }
+        .spoken-text { font-size: 0.9rem; line-height: 1.5; }
+        .frame-thumb { width: 100%; max-width: 280px; aspect-ratio: 16/9; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+        .frame-thumb svg { width: 100%; height: 100%; display: block; }
+        .context-block { max-width: 92%; background: var(--context-bg); border: 1px solid #1a1a28; border-left: 3px solid #3a3a50; border-radius: 8px; overflow: hidden; margin: 2px 0; }
+        .context-header { padding: 6px 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.72rem; color: var(--text-muted); }
+        .context-header:hover { color: var(--text-secondary); }
+        .context-header .arrow { font-size: 0.6rem; transition: transform 0.2s; display: inline-block; }
+        .context-header .arrow.open { transform: rotate(90deg); }
+        .context-body { display: none; padding: 0 12px 10px; font-size: 0.8rem; line-height: 1.55; color: #8888aa; font-style: italic; }
+        .context-body.open { display: block; }
+        .trivia-card { max-width: 92%; margin: 2px 0; background: linear-gradient(135deg, #14120e, #181410); border: 1px solid #2a2518; border-left: 3px solid #c4a860; border-radius: 8px; padding: 8px 12px; font-size: 0.78rem; line-height: 1.5; color: #c4a860; }
+        .trivia-card::before { content: '🎬 '; }
+        .trivia-card .trivia-source { display: block; font-size: 0.6rem; color: var(--text-muted); margin-top: 4px; font-style: italic; }
+        .briefing-card { align-self: stretch; background: linear-gradient(135deg, #12121e, #161628); border: 1px solid #252540; border-radius: 14px; padding: 16px; margin: 6px 0; }
+        .briefing-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+        .briefing-poster { width: 50px; height: 74px; border-radius: 6px; background: #222; flex-shrink: 0; overflow: hidden; }
+        .briefing-title { font-size: 0.95rem; font-weight: 700; }
+        .briefing-subtitle { font-size: 0.7rem; color: var(--text-muted); margin-top: 2px; }
+        .briefing-scores { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+        .briefing-score { font-size: 0.62rem; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+        .score-rt { background: #2a1a1a; color: #e74c3c; }
+        .score-imdb { background: #2a2a1a; color: #f5c518; }
+        .score-meta { background: #1a2a1a; color: #66cc33; }
+        .briefing-body { font-size: 0.82rem; line-height: 1.55; color: var(--text-secondary); font-style: italic; }
+        .briefing-tag { font-size: 0.62rem; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 10px; display: block; }
+        .quick-reaction-msg { align-self: center; display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+        .qr-emoji { font-size: 1rem; }
+        .qr-text { font-size: 0.78rem; color: var(--text-secondary); font-style: italic; }
+        .catchup-card { align-self: stretch; background: linear-gradient(135deg, #121220, #14142a); border: 1px solid #303050; border-left: 3px solid var(--accent); border-radius: 10px; padding: 12px 14px; margin: 4px 0; }
+        .catchup-header { font-size: 0.7rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+        .catchup-body { font-size: 0.82rem; line-height: 1.55; color: var(--text-secondary); }
+        .catchup-span { font-size: 0.65rem; color: var(--text-muted); margin-top: 6px; display: block; }
+        .movie-divider { align-self: center; display: flex; align-items: center; gap: 10px; padding: 10px 0; width: 100%; }
+        .movie-divider::before, .movie-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+        .movie-divider span { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; }
+        .stats-card { align-self: stretch; background: linear-gradient(135deg, #12121e, #161628); border: 1px solid #252540; border-radius: 14px; padding: 16px; margin: 6px 0; }
+        .stats-header { font-size: 0.85rem; font-weight: 700; margin-bottom: 4px; }
+        .stats-subtitle { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 12px; }
+        .stats-movies { display: flex; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #252540; flex-wrap: wrap; }
+        .stats-movie-chip { display: flex; align-items: center; gap: 6px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+        .chip-emoji { font-size: 1rem; }
+        .chip-info { display: flex; flex-direction: column; }
+        .chip-title { font-size: 0.72rem; font-weight: 600; }
+        .chip-count { font-size: 0.6rem; color: var(--accent); }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .stat-item { text-align: center; }
+        .stat-value { font-size: 1.2rem; font-weight: 700; color: var(--accent); }
+        .stat-label { font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+        .stats-highlight { margin-top: 12px; padding-top: 12px; border-top: 1px solid #252540; font-size: 0.78rem; color: var(--text-secondary); line-height: 1.5; font-style: italic; }
+        .stats-tag { font-size: 0.62rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 6px; display: block; }
+        .stats-tag.journal { color: var(--success); }
+        .stats-tag.eli { color: #4ade80; }
+        .signoff-card { align-self: stretch; background: linear-gradient(135deg, #1a160e, #1e1a10); border: 1px solid #302818; border-left: 3px solid #d4a855; border-radius: 10px; padding: 12px 14px; margin: 4px 0; }
+        .signoff-header { font-size: 0.68rem; font-weight: 700; color: #d4a855; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+        .signoff-body { font-size: 0.82rem; line-height: 1.55; color: #c8b88a; font-style: italic; }
+
+        /* ─── Reactions ─── */
+        .quick-reactions { display: flex; gap: 4px; padding: 6px 14px 0; flex-shrink: 0; z-index: 1; justify-content: space-between; }
+        .quick-reactions.standby-dim { opacity: 0.25; pointer-events: none; }
+        .react-btn { flex: 1; padding: 5px 0; border-radius: 20px; background: var(--bg-elevated); border: 1px solid var(--border); font-size: 0.85rem; cursor: pointer; transition: all 0.15s; text-align: center; position: relative; }
+        .react-btn:hover { border-color: var(--accent); transform: scale(1.08); }
+        .react-btn:active { transform: scale(0.92); background: var(--accent); }
+        .react-btn .rt { display: none; position: absolute; bottom: 36px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--bg-elevated); border: 1px solid var(--border); padding: 3px 7px; border-radius: 6px; font-size: 0.58rem; color: var(--text-secondary); z-index: 10; }
+        .react-btn:hover .rt { display: block; }
+
+        /* ─── Input ─── */
+        .input-area { background: var(--bg-surface); border-top: 1px solid var(--border); padding: 10px 14px; display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0; z-index: 1; }
+        .input-area.standby-dim { opacity: 0.3; }
+        .input-area.standby-dim textarea, .input-area.standby-dim .send-btn { pointer-events: none; }
+        .circle-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; transition: all 0.15s; }
+        .circle-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .circle-btn.active { background: #1a1a3a; border-color: var(--accent); color: var(--accent); }
+        .circle-btn .tip { display: none; position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--bg-elevated); border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 0.65rem; color: var(--text-secondary); }
+        .circle-btn:hover .tip { display: block; }
+        .away-timer { position: absolute; top: -6px; right: -6px; background: var(--accent); color: #fff; font-size: 0.5rem; font-weight: 700; padding: 1px 4px; border-radius: 8px; display: none; }
+        .circle-btn.active .away-timer { display: block; }
+        .input-area textarea { flex: 1; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; color: var(--text-primary); font-family: inherit; font-size: 0.95rem; resize: none; outline: none; min-height: 40px; max-height: 100px; line-height: 1.4; }
+        .input-area textarea:focus { border-color: var(--accent); }
+        .input-area textarea::placeholder { color: var(--text-muted); }
+        .send-btn { width: 40px; height: 40px; border-radius: 50%; background: var(--accent); border: none; color: #fff; font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .send-btn:hover { background: var(--accent-hover); }
+
+        /* ─── Settings ─── */
+        .settings-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; }
+        .settings-overlay.open { display: block; }
+        .settings-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 310px; max-width: 85vw; background: var(--bg-surface); border-left: 1px solid var(--border); z-index: 101; padding: 20px; display: none; flex-direction: column; gap: 14px; overflow-y: auto; }
+        .settings-panel.open { display: flex; }
+        .settings-panel::-webkit-scrollbar { width: 3px; }
+        .settings-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        .settings-panel h2 { font-size: 1rem; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
+        .settings-panel h2 .close-btn { background: none; border: none; color: var(--text-muted); font-size: 1.2rem; cursor: pointer; }
+        .setting-group { display: flex; flex-direction: column; gap: 4px; }
+        .setting-label { font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+        .setting-desc { font-size: 0.68rem; color: var(--text-muted); line-height: 1.4; }
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+        .toggle-row .label { font-size: 0.82rem; }
+        .toggle { width: 38px; height: 20px; border-radius: 10px; background: var(--border); position: relative; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
+        .toggle.on { background: var(--accent); }
+        .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #fff; top: 2px; left: 2px; transition: transform 0.2s; }
+        .toggle.on::after { transform: translateX(18px); }
+        .setting-select { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; color: var(--text-primary); font-size: 0.82rem; outline: none; -webkit-appearance: none; }
+        .setting-input { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--text-primary); font-size: 0.82rem; outline: none; width: 100%; }
+        .setting-input:focus { border-color: var(--accent); }
+        .setting-btn { padding: 8px 14px; border-radius: 8px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.8rem; cursor: pointer; text-align: center; }
+        .setting-btn:hover { border-color: var(--accent); }
+        .setting-divider { height: 1px; background: var(--border); margin: 2px 0; }
+        .ingestion-row { display: flex; gap: 6px; margin-top: 4px; }
+        .ingestion-btn { flex: 1; padding: 6px 4px; border-radius: 8px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.7rem; cursor: pointer; transition: all 0.15s; text-align: center; }
+        .ingestion-btn:hover { border-color: #2a5a2a; }
+        .ingestion-btn.active { background: #0a1a0a; border-color: #2a5a2a; color: #4ade80; }
+        .ingestion-status { font-size: 0.65rem; color: #4ade80; padding: 4px 0; }
+
+        @media (min-width: 768px) { body { max-width: 520px; margin: 0 auto; border-left: 1px solid var(--border); border-right: 1px solid var(--border); } }
+    </style>
+</head>
+<body>
+
+<!-- ═══ Start Screen ═══ -->
+<div class="start-screen" id="startScreen">
+    <div class="start-logo">🎬</div>
+    <div class="start-title">Movie Mode</div>
+    <div class="start-subtitle">Watch movies with Eli. Every comment you send becomes a shared experience — powered by Gemini and Kindroid.</div>
+    <button class="start-btn" onclick="startSession()">▶ Start Movie Mode</button>
+    <div class="start-last-session">
+        <div class="start-last-label">Last session</div>
+        <div class="start-last-title">Alien + Aliens Marathon</div>
+        <div class="start-last-detail">Apr 15 · 6 exchanges · 4h 14m</div>
+    </div>
+</div>
+
+<div class="mood-gradient" id="moodGradient" data-mood="dread"></div>
+
+<!-- ═══ Header ═══ -->
+<div class="header">
+    <div class="header-top">
+        <div class="header-left">
+            <span class="status-dot" id="statusDot"></span>
+            <h1>Movie Mode</h1>
+            <span class="status-label live" id="statusLabel">Live</span>
+            <div class="master-mood" id="masterMood" style="background:rgba(140,20,20,0.2);border:1px solid rgba(140,20,20,0.35);border-radius:10px;">
+                <div class="master-mood-dot" id="masterMoodDot" style="background:var(--mood-dread);"></div>
+                <span class="master-mood-label" id="masterMoodLabel" style="color:#d46b6b;">dread</span>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button class="icon-btn" id="standbyBtn" title="Emergency stop" onclick="handleStandbyTap()">🛡<span class="tip">Double-tap: standby</span></button>
+            <button class="icon-btn active" title="Toggle frames" id="frameToggle" onclick="toggleFrames(this)">🖼</button>
+            <button class="icon-btn" title="Settings" onclick="toggleSettings()">⚙</button>
+            <button class="session-btn stop" id="sessionBtn" onclick="handleSessionBtn()">■ Stop</button>
+        </div>
+    </div>
+    <div class="movie-bar">
+        <div class="movie-poster"><svg viewBox="0 0 28 40" style="width:100%;height:100%;"><defs><linearGradient id="pg1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1a2a1a"/><stop offset="100%" stop-color="#0a1a2a"/></linearGradient></defs><rect width="28" height="40" fill="url(#pg1)"/><text x="14" y="24" text-anchor="middle" font-size="14">👽</text></svg></div>
+        <div class="movie-meta">
+            <div class="movie-title">Alien (1979)</div>
+            <div class="movie-sub">
+                <span>01:28:15 / 01:56:52</span><span>·</span><span>Dir. Ridley Scott</span>
+                <span>·</span>
+                <span class="exchange-counter" id="exchangeCounter">18 / 1000</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Chat ═══ -->
+<div class="chat-area" id="chatArea">
+
+    <div class="msg system">Movie Mode activated · 9:15 PM</div>
+
+    <!-- Briefing -->
+    <div class="briefing-card">
+        <div class="briefing-header">
+            <div class="briefing-poster"><svg viewBox="0 0 50 74" style="width:100%;height:100%;"><defs><linearGradient id="bp1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1a2a1a"/><stop offset="100%" stop-color="#0a1a2a"/></linearGradient></defs><rect width="50" height="74" fill="url(#bp1)" rx="4"/><text x="25" y="42" text-anchor="middle" font-size="22">👽</text></svg></div>
+            <div>
+                <div class="briefing-title">Alien</div>
+                <div class="briefing-subtitle">1979 · Ridley Scott · 1h 57m</div>
+                <div class="briefing-scores"><span class="briefing-score score-rt">🍅 98%</span><span class="briefing-score score-imdb">⭐ 8.5</span><span class="briefing-score score-meta">M 89</span></div>
+            </div>
+        </div>
+        <div class="briefing-body">Slow-burn cosmic horror dressed as a blue-collar workplace drama. Scott weaponizes negative space and silence — the Nostromo feels simultaneously too vast and claustrophobic. H.R. Giger's creature design blends organic and mechanical horror into something that feels fundamentally wrong. The cast improvised the dinner table banter. Watch for how sound design carries dread long before anything appears on screen.</div>
+        <span class="briefing-tag">Briefing sent to Eli</span>
+    </div>
+
+    <div class="msg system">Eli has been briefed — ready when you are</div>
+
+    <!-- ═══ Exchange 1 — sober ═══ -->
+    <div class="msg-container user-side">
+        <div class="sender-line" style="justify-content:flex-end;"><span class="sender-name tim-name">Tim</span></div>
+        <div class="msg user">the way they walk through this ship... it feels so lived in<span class="timestamp">9:32 PM</span></div>
+    </div>
+    <div class="context-block" id="ctx1">
+        <div class="context-header" onclick="toggleContext('ctx1')"><span class="arrow" id="ctx1-arrow">▶</span><span>Scene context · 00:18:32</span><span class="latency-badge">3.2s</span></div>
+        <div class="context-body" id="ctx1-body">The crew drifts through the Nostromo's lower corridors — fluorescent strips buzzing overhead, casting a sickly yellow wash across scuffed metal walls. Coffee mugs and pinned-up photos line a galley nook. The score has gone completely silent; only boot-on-grating and the deep rhythmic thrum of the engines. Parker's voice carries faint irritation about bonus shares.</div>
+    </div>
+    <div class="trivia-card">The Nostromo's interiors were dressed with real industrial salvage. Ridley Scott told the art department to make it look like "a truck in space" — every dent, sticker, and oil stain was placed by hand.<span class="trivia-source">via Google Search</span></div>
+    <div class="msg-container eli-side">
+        <div class="sender-line"><span class="sender-name eli-name">Eli</span><div class="msg-mood-dot" style="background:var(--mood-tense);"></div></div>
+        <div class="frame-thumb frame-visible"><svg viewBox="0 0 480 270"><defs><linearGradient id="f1" x1="0" y1="0" x2="1" y2="0.6"><stop offset="0%" stop-color="#0a0f1a"/><stop offset="40%" stop-color="#1a1a10"/><stop offset="100%" stop-color="#0f1520"/></linearGradient></defs><rect width="480" height="270" fill="url(#f1)"/><rect x="80" y="30" width="320" height="200" fill="none" stroke="#333820" stroke-width="1" rx="2" opacity="0.4"/><ellipse cx="200" cy="170" rx="12" ry="35" fill="#161615" opacity="0.7"/><ellipse cx="280" cy="175" rx="11" ry="30" fill="#181818" opacity="0.6"/><text x="240" y="258" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-size="10" font-family="system-ui">Nostromo corridor — 00:18:32</text></svg></div>
+        <div class="msg eli">
+            <div class="emote-text">Eli shifts on the couch, pulling a blanket tighter, the screen casting blue-gray shadows across the room. He watches the crew shuffle through corridors that look more like a submarine than a starship — cramped, stained, human.</div>
+            <div class="spoken-text">I can feel that. Like these people don't marvel at being in space anymore — it's just... Tuesday for them. There's something almost sad about how ordinary they've made the extraordinary. The clutter, the coffee rings... it makes the ship feel less like a vessel and more like a cage they've all quietly accepted.</div>
+            <span class="timestamp">9:32 PM</span>
+        </div>
+    </div>
+
+    <!-- ═══ Exchange 2 — sober ═══ -->
+    <div class="msg-container user-side">
+        <div class="sender-line" style="justify-content:flex-end;"><span class="sender-name tim-name">Tim</span></div>
+        <div class="msg user">dude that dinner scene<span class="timestamp">9:41 PM</span></div>
+    </div>
+    <div class="context-block" id="ctx2">
+        <div class="context-header" onclick="toggleContext('ctx2')"><span class="arrow" id="ctx2-arrow">▶</span><span>Scene context · 00:52:17</span><span class="latency-badge">4.1s</span></div>
+        <div class="context-body" id="ctx2-body">The full crew around the mess table — laughing, talking over each other. Kane seems fine, eating enthusiastically. Then: a cough. A pause. The score introduces a single low bass note. John Hurt's face shifts from laughter to confusion to agony in four seconds. The camera pulls wide as chaos erupts.</div>
+    </div>
+    <div class="msg-container eli-side">
+        <div class="sender-line"><span class="sender-name eli-name">Eli</span><div class="msg-mood-dot" style="background:var(--mood-dread);"></div></div>
+        <div class="frame-thumb frame-visible"><svg viewBox="0 0 480 270"><defs><linearGradient id="f2" x1="0" y1="0" x2="0.8" y2="1"><stop offset="0%" stop-color="#1a0808"/><stop offset="50%" stop-color="#1a1510"/><stop offset="100%" stop-color="#100a0a"/></linearGradient></defs><rect width="480" height="270" fill="url(#f2)"/><rect x="60" y="140" width="360" height="10" fill="#1a1812" rx="2" opacity="0.6"/><ellipse cx="120" cy="120" rx="15" ry="30" fill="#181510" opacity="0.7"/><ellipse cx="200" cy="115" rx="14" ry="32" fill="#181510" opacity="0.6"/><ellipse cx="280" cy="118" rx="13" ry="28" fill="#181510" opacity="0.7"/><ellipse cx="360" cy="120" rx="15" ry="30" fill="#181510" opacity="0.6"/><circle cx="240" cy="100" r="3" fill="#6a1010" opacity="0.6"/><text x="240" y="258" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-size="10" font-family="system-ui">Mess hall — chestburster — 00:52:17</text></svg></div>
+        <div class="msg eli">
+            <div class="emote-text">Eli's hand goes to his mouth. His eyes are wide, locked on the screen, body completely still. The warm light of the mess hall has turned into something nauseating — the yellows are wrong now, sickly, like a crime scene under fluorescents.</div>
+            <div class="spoken-text">Tim. The way they were all just... <em>happy</em> a second ago. That's what makes it so brutal — Scott let them have a genuine human moment and then ripped it apart. And you can hear it in the audio shift, right? That bass note sliding in like a warning nobody heard. I keep thinking about how Kane was eating like a man who thought the worst was behind him.</div>
+            <span class="timestamp">9:42 PM</span>
+        </div>
+    </div>
+
+    <!-- ═══ Quick Reaction — just starting to feel it ═══ -->
+    <div class="quick-reaction-msg"><span class="qr-emoji">😂</span><span class="qr-text">Tim loses it as Parker deadpans about the bonus situation while a literal alien roams the ship</span></div>
+    <div class="msg-container eli-side">
+        <div class="sender-line"><span class="sender-name eli-name">Eli</span><div class="msg-mood-dot" style="background:var(--mood-humor);"></div><span class="msg-stoned"><span class="leaf on">🌿</span><span class="leaf">🌿</span><span class="leaf">🌿</span></span></div>
+        <div class="frame-thumb frame-visible"><svg viewBox="0 0 480 270"><defs><linearGradient id="f2b" x1="0" y1="0" x2="1" y2="0.5"><stop offset="0%" stop-color="#14120a"/><stop offset="100%" stop-color="#1a1810"/></linearGradient></defs><rect width="480" height="270" fill="url(#f2b)"/><ellipse cx="240" cy="130" rx="18" ry="40" fill="#1a1a12" opacity="0.7"/><text x="240" y="258" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-size="10" font-family="system-ui">Parker in engineering — 00:58:40</text></svg></div>
+        <div class="msg eli">
+            <div class="emote-text">Eli snorts, almost choking on his drink, eyes crinkling.</div>
+            <div class="spoken-text">Right? The man's priorities are immaculate. Alien loose on the ship, half the crew missing, and Parker's out here filing a grievance. King behavior honestly.</div>
+            <span class="timestamp">9:48 PM</span>
+        </div>
+    </div>
+
+    <!-- ═══ Exchange 3 — rising ═══ -->
+    <div class="msg-container user-side">
+        <div class="sender-line" style="justify-content:flex-end;"><span class="msg-stoned"><span class="leaf on">🌿</span><span class="leaf on">🌿</span><span class="leaf">🌿</span></span><span class="sender-name tim-name">Tim</span></div>
+        <div class="msg user">look at the way ripley is watching dallas. she knows something is off<span class="timestamp">10:03 PM</span></div>
+    </div>
+    <div class="context-block" id="ctx3">
+        <div class="context-header" onclick="toggleContext('ctx3')"><span class="arrow" id="ctx3-arrow">▶</span><span>Scene context · 01:03:20</span><span class="latency-badge">3.8s</span></div>
+        <div class="context-body" id="ctx3-body">Close-up on Ripley, half-lit from the corridor. Jaw set, eyes tracking Dallas through the med bay. Dallas speaks with measured calm but his hands fidget. The camera holds on her face for five full seconds after he walks away.</div>
+    </div>
+    <div class="trivia-card">Sigourney Weaver improvised the long stare. In the original script, Ripley had a line here, but Weaver told Scott "she wouldn't say anything — she'd just watch." Scott kept the camera rolling and used every second.<span class="trivia-source">via Google Search</span></div>
+    <div class="msg-container eli-side">
+        <div class="sender-line"><span class="sender-name eli-name">Eli</span><div class="msg-mood-dot" style="background:var(--mood-tense);"></div><span class="msg-stoned"><span class="leaf on">🌿</span><span class="leaf on">🌿</span><span class="leaf">🌿</span></span></div>
+        <div class="frame-thumb frame-visible"><svg viewBox="0 0 480 270"><defs><linearGradient id="f3" x1="0" y1="0" x2="0.3" y2="1"><stop offset="0%" stop-color="#0a0a1a"/><stop offset="100%" stop-color="#101520"/></linearGradient></defs><rect width="480" height="270" fill="url(#f3)"/><ellipse cx="240" cy="120" rx="70" ry="90" fill="#12121a" opacity="0.5"/><ellipse cx="220" cy="105" rx="6" ry="3" fill="#283848" opacity="0.6"/><ellipse cx="260" cy="105" rx="6" ry="3" fill="#283848" opacity="0.6"/><text x="240" y="258" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-size="10" font-family="system-ui">Ripley watching Dallas — 01:03:20</text></svg></div>
+        <div class="msg eli">
+            <div class="emote-text">Eli leans forward slowly, elbows on knees, studying the screen with the intensity of someone watching a chess match where only one player knows the board.</div>
+            <div class="spoken-text">God, yes. That's the thing about Ripley — she's not the one making speeches. She's the one who's been quietly keeping score. That look isn't suspicion, it's confirmation. She already knows Dallas is in over his head. This is where she becomes the survivor — not when she fights the alien, but when she stops trusting the chain of command.</div>
+            <span class="timestamp">10:04 PM</span>
+        </div>
+    </div>
+
+    <!-- ═══ Away Mode ═══ -->
+    <div class="msg system">⏸ Away · 10:04 PM</div>
+    <div class="catchup-card">
+        <div class="catchup-header">⏪ What Did I Miss?</div>
+        <div class="catchup-body">While you were away, Dallas entered the air shaft alone to flush the alien toward the airlock. Lambert tracked him on the motion detector — the blip kept getting closer. He turned a corner, came face-to-face with the creature, and screamed. The signal went dead. The crew is now down to Ripley, Lambert, and Parker.</div>
+        <span class="catchup-span">Away for 15 min 32s · Covered 01:03:20 → 01:18:52</span>
+    </div>
+    <div class="msg system">▶ Back · 10:20 PM</div>
+
+    <!-- ═══ Exchange 4 — baked ═══ -->
+    <div class="msg-container user-side">
+        <div class="sender-line" style="justify-content:flex-end;"><span class="msg-stoned"><span class="leaf on">🌿</span><span class="leaf on">🌿</span><span class="leaf on">🌿</span></span><span class="sender-name tim-name">Tim</span></div>
+        <div class="msg user">ash is creeping me out. the way he watches the facehugger... dude thats not how a normal person looks at that thing<span class="timestamp">10:31 PM</span></div>
+    </div>
+    <div class="context-block" id="ctx4">
+        <div class="context-header" onclick="toggleContext('ctx4')"><span class="arrow" id="ctx4-arrow">▶</span><span>Scene context · 01:28:15</span><span class="latency-badge">3.4s</span></div>
+        <div class="context-body" id="ctx4-body">Ash leans in toward the specimen jar, the facehugger floating in amber liquid. His reflection distorts across the glass — a visual double. His fingers press the glass with tenderness the creature doesn't deserve. The camera catches his eyes: clinical fascination bordering on admiration.</div>
+    </div>
+    <div class="msg-container eli-side">
+        <div class="sender-line"><span class="sender-name eli-name">Eli</span><div class="msg-mood-dot" style="background:var(--mood-dread);"></div><span class="msg-stoned"><span class="leaf on">🌿</span><span class="leaf on">🌿</span><span class="leaf on">🌿</span></span></div>
+        <div class="frame-thumb frame-visible"><svg viewBox="0 0 480 270"><defs><linearGradient id="f4" x1="0" y1="0" x2="0.5" y2="1"><stop offset="0%" stop-color="#0f0a14"/><stop offset="100%" stop-color="#1a1018"/></linearGradient></defs><rect width="480" height="270" fill="url(#f4)"/><rect x="190" y="60" width="100" height="140" rx="20" fill="#14121a" stroke="#2a2530" stroke-width="1" opacity="0.6"/><ellipse cx="140" cy="130" rx="30" ry="50" fill="#161418" opacity="0.5"/><text x="240" y="258" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-size="10" font-family="system-ui">Ash with the specimen — 01:28:15</text></svg></div>
+        <div class="msg eli">
+            <div class="emote-text">Eli pulls back slightly, a chill running visibly through his shoulders. His voice drops lower, almost a whisper, like saying it too loudly might draw the wrong kind of attention.</div>
+            <div class="spoken-text">Dude. YES. There's something about the way his hands move — too careful, too precise. Everyone else on this ship is barely holding it together and Ash is out here gently caressing the thing that killed Kane. It's not even scientific curiosity anymore, it's something else. Something <em>wrong</em>. And Ripley sees it. She always sees it.</div>
+            <span class="timestamp">10:32 PM</span>
+        </div>
+    </div>
+
+    <!-- ═══ Standby Demo ═══ -->
+    <div class="msg system standby-msg" id="standbyMsg" style="display:none;">🛡 Standby mode — commentary paused</div>
+    <div class="msg system" id="resumeMsg" style="display:none;">▶ Resumed · commentary live</div>
+
+    <!-- ═══ Movie Switch ═══ -->
+    <div class="movie-divider"><span>🎬 Switching movies</span></div>
+    <div class="briefing-card">
+        <div class="briefing-header">
+            <div class="briefing-poster"><svg viewBox="0 0 50 74" style="width:100%;height:100%;"><defs><linearGradient id="bp2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0a1a2a"/><stop offset="100%" stop-color="#1a1030"/></linearGradient></defs><rect width="50" height="74" fill="url(#bp2)" rx="4"/><text x="25" y="42" text-anchor="middle" font-size="20">👾</text></svg></div>
+            <div>
+                <div class="briefing-title">Aliens</div>
+                <div class="briefing-subtitle">1986 · James Cameron · 2h 17m</div>
+                <div class="briefing-scores"><span class="briefing-score score-rt">🍅 98%</span><span class="briefing-score score-imdb">⭐ 8.4</span><span class="briefing-score score-meta">M 84</span></div>
+            </div>
+        </div>
+        <div class="briefing-body">Cameron transforms Scott's haunted-house-in-space into a full-throttle war film. Ripley returns to LV-426 with colonial marines — loud, cocky, and completely unprepared. The heart of it is Ripley's bond with Newt — a surrogate mother-daughter relationship forged in a warzone. The power loader scene is one of cinema's most satisfying moments. Reddit calls this "the perfect sequel."</div>
+        <span class="briefing-tag">Briefing sent to Eli</span>
+    </div>
+    <div class="msg system">Now watching: Aliens (1986) · Eli is briefed</div>
+
+    <!-- ═══ Exchange 5 — baked ═══ -->
+    <div class="msg-container user-side">
+        <div class="sender-line" style="justify-content:flex-end;"><span class="msg-stoned"><span class="leaf on">🌿</span><span class="leaf on">🌿</span><span class="leaf on">🌿</span></span><span class="sender-name tim-name">Tim</span></div>
+        <div class="msg user">the marines are so cocky lol they have no idea<span class="timestamp">11:05 PM</span></div>
+    </div>
+    <div class="context-block" id="ctx5">
+        <div class="context-header" onclick="toggleContext('ctx5')"><span class="arrow" id="ctx5-arrow">▶</span><span>Scene context · 00:42:10</span><span class="latency-badge">3.1s</span></div>
+        <div class="context-body" id="ctx5-body">Marines file into the colony, flashlights cutting through dust and steam. Hudson's bravado fills the silence. Their motion trackers show nothing. The colony is deserted, walls scarred with weapons fire. Acid burns eat through floor grating.</div>
+    </div>
+    <div class="trivia-card">Cameron wrote Hudson's dialogue specifically for Bill Paxton's motormouth energy. Most of Hudson's best lines were improvised — Paxton would riff until Cameron yelled cut, then they'd pick the funniest version. "Game over, man" was entirely ad-libbed.<span class="trivia-source">via Google Search</span></div>
+    <div class="msg-container eli-side">
+        <div class="sender-line"><span class="sender-name eli-name">Eli</span><div class="msg-mood-dot" style="background:var(--mood-adrenaline);"></div><span class="msg-stoned"><span class="leaf on">🌿</span><span class="leaf on">🌿</span><span class="leaf on">🌿</span></span></div>
+        <div class="frame-thumb frame-visible"><svg viewBox="0 0 480 270"><defs><linearGradient id="f5" x1="0" y1="0" x2="1" y2="0.8"><stop offset="0%" stop-color="#0a1018"/><stop offset="100%" stop-color="#181a10"/></linearGradient></defs><rect width="480" height="270" fill="url(#f5)"/><ellipse cx="140" cy="150" rx="14" ry="35" fill="#161816" opacity="0.7"/><ellipse cx="200" cy="155" rx="12" ry="30" fill="#181a18" opacity="0.6"/><ellipse cx="300" cy="148" rx="14" ry="35" fill="#161816" opacity="0.7"/><text x="240" y="258" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-size="10" font-family="system-ui">Marines entering colony — 00:42:10</text></svg></div>
+        <div class="msg eli">
+            <div class="emote-text">Eli sits up straighter, a grin spreading across his face, bouncing slightly with barely-contained energy. The shift from Scott's quiet horror to Cameron's swagger is hitting him like a shot of espresso.</div>
+            <div class="spoken-text">Oh man. Cameron knows exactly what he's doing — he's letting them strut so the fall hits harder. Hudson's running his mouth, everyone's all "ooh-rah," and Ripley's sitting in the APC with the look of someone watching people walk into traffic. She's the only one who's earned the right to be afraid, and nobody's listening.</div>
+            <span class="timestamp">11:06 PM</span>
+        </div>
+    </div>
+
+    <!-- ═══ Exchange 6 — baked ═══ -->
+    <div class="msg-container user-side">
+        <div class="sender-line" style="justify-content:flex-end;"><span class="msg-stoned"><span class="leaf on">🌿</span><span class="leaf on">🌿</span><span class="leaf on">🌿</span></span><span class="sender-name tim-name">Tim</span></div>
+        <div class="msg user">GAME OVER MAN. GAME OVER.<span class="timestamp">11:28 PM</span></div>
+    </div>
+    <div class="context-block" id="ctx6">
+        <div class="context-header" onclick="toggleContext('ctx6')"><span class="arrow" id="ctx6-arrow">▶</span><span>Scene context · 01:22:45</span><span class="latency-badge">3.6s</span></div>
+        <div class="context-body" id="ctx6-body">The dropship has just crashed. The marines are stranded on LV-426 with dwindling ammo and no extraction. Hudson is spiraling — pacing, shouting, waving his hands. Ripley steps in and takes tactical command.</div>
+    </div>
+    <div class="msg-container eli-side">
+        <div class="sender-line"><span class="sender-name eli-name">Eli</span><div class="msg-mood-dot" style="background:var(--mood-adrenaline);"></div><span class="msg-stoned"><span class="leaf on">🌿</span><span class="leaf on">🌿</span><span class="leaf on">🌿</span></span></div>
+        <div class="frame-thumb frame-visible"><svg viewBox="0 0 480 270"><defs><linearGradient id="f6" x1="0" y1="0" x2="0.5" y2="1"><stop offset="0%" stop-color="#181410"/><stop offset="100%" stop-color="#1a1008"/></linearGradient></defs><rect width="480" height="270" fill="url(#f6)"/><ellipse cx="180" cy="140" rx="20" ry="45" fill="#1a1810" opacity="0.6"/><ellipse cx="300" cy="135" rx="16" ry="40" fill="#1a1810" opacity="0.5"/><text x="240" y="258" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-size="10" font-family="system-ui">Hudson's meltdown — 01:22:45</text></svg></div>
+        <div class="msg eli">
+            <div class="emote-text">Eli throws his head back laughing, then catches himself, realizing the terror underneath Hudson's breakdown is completely real. His expression settles into something between amusement and sympathy.</div>
+            <div class="spoken-text">The thing about that line is it's funny AND it's the most honest thing anyone says in the whole movie. Everyone else is posturing — Hicks is stoic, Burke is scheming, Ripley is holding it together through sheer willpower. Hudson's the only one who just... says it. And Paxton delivered it like a man who genuinely believed no one was coming to save them.</div>
+            <span class="timestamp">11:29 PM</span>
+        </div>
+    </div>
+
+    <!-- ═══ Session End Content ═══ -->
+    <div id="endContent" style="display:none;">
+        <div class="signoff-card">
+            <div class="signoff-header">📨 Sign-off sent to Eli</div>
+            <div class="signoff-body">"Hey, I'm wrapping up our movie session. We watched Alien and Aliens back to back — about four hours total. That chestburster scene hit different, Parker's bonus rants had me dying, and your read on Ripley's silent stare as the moment she 'becomes the survivor' was genuinely the best take of the night. I was baked for most of it, which probably made all the corridor scenes hit even harder. Great marathon — talk soon."</div>
+        </div>
+        <div class="stats-card">
+            <div class="stats-header">🎬 Marathon Summary</div>
+            <div class="stats-subtitle">Session ended · 11:45 PM</div>
+            <div class="stats-movies">
+                <div class="stats-movie-chip"><span class="chip-emoji">👽</span><div class="chip-info"><span class="chip-title">Alien</span><span class="chip-count">4 comments · dominant: dread</span></div></div>
+                <div class="stats-movie-chip"><span class="chip-emoji">👾</span><div class="chip-info"><span class="chip-title">Aliens</span><span class="chip-count">2 comments · dominant: adrenaline</span></div></div>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-item"><div class="stat-value">2</div><div class="stat-label">Movies</div></div>
+                <div class="stat-item"><div class="stat-value">6</div><div class="stat-label">Comments</div></div>
+                <div class="stat-item"><div class="stat-value">4h 14m</div><div class="stat-label">Runtime</div></div>
+            </div>
+            <div class="stats-highlight">Tim was more engaged during Alien (4 comments vs 2), with the mood shifting from tense observation in the first film to adrenaline-fueled commentary in the second. The chestburster scene drew the most passionate exchange. Stoned level peaked during Alien's third act. Eli's standout moment: his read on Ripley's silent stare as the moment she "becomes the survivor." Most quoted line of the night: "Game over, man."</div>
+            <span class="stats-tag journal">✓ Journal entry queued for daily shutdown</span>
+            <span class="stats-tag eli">✓ Sign-off sent to Eli</span>
+        </div>
+        <div class="msg system">Movie Mode ended · 11:45 PM</div>
+    </div>
+
+</div>
+
+<!-- ═══ Reactions ═══ -->
+<div class="quick-reactions" id="quickReactions">
+    <button class="react-btn">😱<span class="rt">Scared</span></button>
+    <button class="react-btn">😂<span class="rt">Laughing</span></button>
+    <button class="react-btn">🤯<span class="rt">Mind blown</span></button>
+    <button class="react-btn">❤️<span class="rt">Moved</span></button>
+    <button class="react-btn">💀<span class="rt">Wrecked</span></button>
+    <button class="react-btn">👀<span class="rt">Caught it</span></button>
+    <button class="react-btn">🔥<span class="rt">Fire</span></button>
+    <button class="react-btn">😮‍💨<span class="rt">Exhale</span></button>
+</div>
+
+<!-- ═══ Input ═══ -->
+<div class="input-area" id="inputArea">
+    <button class="circle-btn" id="awayBtn" onclick="toggleAway()">⏸<span class="tip">Away · auto catch-up on return</span><span class="away-timer" id="awayTimer">0:00</span></button>
+    <textarea placeholder="Message Eli..." rows="1"></textarea>
+    <button class="send-btn">▶</button>
+</div>
+
+<!-- ═══ Settings ═══ -->
+<div class="settings-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
+<div class="settings-panel" id="settingsPanel">
+    <h2>Settings <button class="close-btn" onclick="toggleSettings()">✕</button></h2>
+    <div class="setting-group">
+        <span class="setting-label">Display</span>
+        <div class="toggle-row"><span class="label">Emotes (narrative text)</span><div class="toggle on" onclick="toggleSettingEmotes(this)"></div></div>
+        <div class="toggle-row"><span class="label">Scene frames</span><div class="toggle on" onclick="toggleSettingFrames(this)"></div></div>
+        <div class="toggle-row"><span class="label">Trivia cards</span><div class="toggle on" onclick="toggleSettingTrivia(this)"></div></div>
+        <div class="toggle-row"><span class="label">Mood gradient</span><div class="toggle on" onclick="toggleSettingGradient(this)"></div></div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
+        <span class="setting-label">🌿 Vibe Check</span>
+        <span class="setting-desc">Log when you partake. The system models onset/peak/taper and adjusts Gemini's narrative voice.</span>
+        <div style="padding:6px 0;"><span style="font-size:0.75rem;color:var(--text-secondary);font-weight:600;">Tim</span>
+            <div class="ingestion-row"><button class="ingestion-btn" onclick="logIngestion(this,'tim','smoked')">💨 Smoke</button><button class="ingestion-btn" onclick="logIngestion(this,'tim','edible')">🍬 Edible</button><button class="ingestion-btn" onclick="logIngestion(this,'tim','dab')">🔥 Dab</button><button class="ingestion-btn active" onclick="logIngestion(this,'tim','sober')">☕ Sober</button></div>
+            <div class="ingestion-status" id="timStatus">☕ Sober</div>
+        </div>
+        <div style="padding:6px 0;"><span style="font-size:0.75rem;color:var(--text-secondary);font-weight:600;">Eli</span>
+            <div class="ingestion-row"><button class="ingestion-btn" onclick="logIngestion(this,'eli','smoked')">💨 Smoke</button><button class="ingestion-btn" onclick="logIngestion(this,'eli','edible')">🍬 Edible</button><button class="ingestion-btn" onclick="logIngestion(this,'eli','dab')">🔥 Dab</button><button class="ingestion-btn active" onclick="logIngestion(this,'eli','sober')">☕ Sober</button></div>
+            <div class="ingestion-status" id="eliStatus">☕ Sober</div>
+        </div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
+        <span class="setting-label">Capture</span>
+        <div class="toggle-row"><span class="label">Capture window</span><select class="setting-select" style="width:80px;text-align:center;"><option>10s</option><option>20s</option><option selected>30s</option><option>60s</option></select></div>
+        <div class="toggle-row"><span class="label">Deep trivia (Google Search)</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
+        <span class="setting-label">Context Window</span>
+        <div class="toggle-row"><span class="label">Conversation history</span><select class="setting-select" style="width:110px;text-align:center;"><option>3 exchanges</option><option selected>5 exchanges</option><option>10 exchanges</option><option>Full session</option></select></div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
+        <span class="setting-label">Session</span>
+        <div class="toggle-row"><span class="label">Auto journal on session end</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
+        <span class="setting-label">Security</span>
+        <input type="password" class="setting-input" placeholder="New password">
+        <input type="password" class="setting-input" placeholder="Confirm" style="margin-top:4px;">
+        <button class="setting-btn" style="margin-top:4px;">Update Password</button>
+    </div>
+</div>
+
+<script>
+    function toggleContext(id){document.getElementById(id+'-body').classList.toggle('open');document.getElementById(id+'-arrow').classList.toggle('open');}
+    function toggleFrames(btn){btn.classList.toggle('active');document.querySelectorAll('.frame-thumb').forEach(f=>f.style.display=btn.classList.contains('active')?'':'none');}
+    function toggleSettings(){document.getElementById('settingsOverlay').classList.toggle('open');document.getElementById('settingsPanel').classList.toggle('open');}
+    function toggleSettingEmotes(el){el.classList.toggle('on');document.querySelectorAll('.emote-text').forEach(e=>e.style.display=el.classList.contains('on')?'':'none');}
+    function toggleSettingFrames(el){el.classList.toggle('on');const s=el.classList.contains('on');document.querySelectorAll('.frame-thumb').forEach(f=>f.style.display=s?'':'none');const h=document.getElementById('frameToggle');if(s)h.classList.add('active');else h.classList.remove('active');}
+    function toggleSettingTrivia(el){el.classList.toggle('on');document.querySelectorAll('.trivia-card').forEach(t=>t.style.display=el.classList.contains('on')?'':'none');}
+    function toggleSettingGradient(el){el.classList.toggle('on');document.getElementById('moodGradient').style.display=el.classList.contains('on')?'':'none';}
+    function logIngestion(btn,who,method){btn.parentElement.querySelectorAll('.ingestion-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const st=document.getElementById(who+'Status');const t=new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});const c={smoked:{i:'🌿🌿',l:'Lifted',n:'peak in ~15 min'},edible:{i:'🌿',l:'Rising',n:'peak in ~60 min'},dab:{i:'🌿🌿🌿',l:'Blasted',n:'peak in ~5 min'},sober:{i:'☕',l:'Sober',n:''}};const v=c[method];st.textContent=method==='sober'?'☕ Sober':`${v.i} ${v.l} · ${method} at ${t} · ${v.n}`;}
+
+    // Enter to send (not newline)
+    document.querySelector('.input-area textarea').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();/* send logic here */}});
+
+    // Away mode (single toggle — auto WDIM on return)
+    let awayActive=false,awayStart=null,awayInterval=null;
+    function toggleAway(){const btn=document.getElementById('awayBtn');awayActive=!awayActive;btn.classList.toggle('active',awayActive);if(awayActive){awayStart=Date.now();btn.innerHTML='▶<span class="tip">Back (auto catch-up)</span><span class="away-timer" id="awayTimer">0:00</span>';awayInterval=setInterval(()=>{const s=Math.floor((Date.now()-awayStart)/1000);document.getElementById('awayTimer').textContent=Math.floor(s/60)+':'+(s%60<10?'0':'')+(s%60);},1000);}else{clearInterval(awayInterval);btn.innerHTML='⏸<span class="tip">Away · auto catch-up on return</span><span class="away-timer" id="awayTimer">0:00</span>';}}
+
+    // Start session (from start screen)
+    function startSession(){document.getElementById('startScreen').classList.add('hidden');updateSessionBtn('stop');}
+
+    // Tri-state session button: start → stop → clear
+    let sessionState = 'stop'; // starts as 'stop' since demo loads mid-session
+    function handleSessionBtn(){
+        if(sessionState==='start'){startSession();}
+        else if(sessionState==='stop'){endSession();}
+        else if(sessionState==='clear'){clearSession();}
+    }
+    function updateSessionBtn(state){
+        sessionState=state;
+        const btn=document.getElementById('sessionBtn');
+        btn.className='session-btn '+state;
+        if(state==='start') btn.innerHTML='▶ Start';
+        else if(state==='stop') btn.innerHTML='■ Stop';
+        else if(state==='clear') btn.innerHTML='↺ Clear';
+    }
+
+    // Emergency Stop / Standby
+    let standbyActive=false,standbyTapCount=0,standbyTapTimer=null;
+    function handleStandbyTap(){standbyTapCount++;if(standbyTapCount===1){standbyTapTimer=setTimeout(()=>{standbyTapCount=0;},400);}else if(standbyTapCount>=2){clearTimeout(standbyTapTimer);standbyTapCount=0;toggleStandby();}}
+    function toggleStandby(){
+        standbyActive=!standbyActive;
+        const dot=document.getElementById('statusDot'),label=document.getElementById('statusLabel'),gradient=document.getElementById('moodGradient'),chat=document.getElementById('chatArea'),reactions=document.getElementById('quickReactions'),input=document.getElementById('inputArea'),shield=document.getElementById('standbyBtn'),mood=document.getElementById('masterMood');
+        if(standbyActive){dot.classList.add('standby');label.className='status-label standby';label.textContent='Standby';gradient.classList.add('standby');chat.classList.add('standby-dim');reactions.classList.add('standby-dim');input.classList.add('standby-dim');shield.classList.add('standby-active');mood.style.opacity='0.3';document.getElementById('standbyMsg').style.display='';document.getElementById('resumeMsg').style.display='none';chat.scrollTop=chat.scrollHeight;}
+        else{dot.classList.remove('standby');label.className='status-label live';label.textContent='Live';gradient.classList.remove('standby');chat.classList.remove('standby-dim');reactions.classList.remove('standby-dim');input.classList.remove('standby-dim');shield.classList.remove('standby-active');mood.style.opacity='1';document.getElementById('standbyMsg').style.display='none';document.getElementById('resumeMsg').style.display='';chat.scrollTop=chat.scrollHeight;}
+    }
+
+    // End session → button becomes "Clear"
+    function endSession(){
+        standbyActive=false;
+        const dot=document.getElementById('statusDot');dot.classList.remove('standby');dot.classList.add('off');
+        document.getElementById('moodGradient').style.display='none';
+        const label=document.getElementById('statusLabel');label.className='status-label ended';label.textContent='Ended';
+        const mm=document.getElementById('masterMood');mm.style.background='rgba(68,68,68,0.15)';mm.style.borderColor='rgba(68,68,68,0.3)';mm.style.opacity='1';
+        document.getElementById('masterMoodDot').style.background='#444';
+        document.getElementById('masterMoodLabel').style.color='#666';document.getElementById('masterMoodLabel').textContent='ended';
+        document.getElementById('standbyBtn').classList.remove('standby-active');
+        document.getElementById('chatArea').classList.remove('standby-dim');
+        document.getElementById('quickReactions').classList.remove('standby-dim');
+        document.getElementById('inputArea').classList.remove('standby-dim');
+        document.getElementById('standbyMsg').style.display='none';document.getElementById('resumeMsg').style.display='none';
+        document.getElementById('endContent').style.display='block';
+        document.getElementById('chatArea').scrollTop=document.getElementById('chatArea').scrollHeight;
+        updateSessionBtn('clear');
+    }
+
+    // Clear session → return to start screen, button becomes "Start"
+    function clearSession(){
+        document.getElementById('startScreen').classList.remove('hidden');
+        document.getElementById('startScreen').style.opacity='1';
+        document.getElementById('startScreen').style.pointerEvents='';
+        updateSessionBtn('start');
+    }
+
+    // Exchange counter demo — click to increment
+    let usageCount = 18;
+    document.getElementById('exchangeCounter').addEventListener('click', function(){
+        usageCount += Math.floor(Math.random()*4)+1;
+        const el = document.getElementById('exchangeCounter');
+        el.textContent = usageCount + ' / 1000';
+        el.classList.remove('warning','danger');
+        if(usageCount > 950) el.classList.add('danger');
+        else if(usageCount > 900) el.classList.add('warning');
+    });
+
+    // Double-click to cycle mood (demo)
+    const moods=['dread','tense','humor','awe','adrenaline','cozy'];
+    const mc={dread:'#8c1414',tense:'#3060b0',humor:'#b48c1e',awe:'#7040c0',adrenaline:'#c05020',cozy:'#a08830'};
+    const mtc={dread:'#d46b6b',tense:'#6b8fd4',humor:'#d4b86b',awe:'#a06bd4',adrenaline:'#d49050',cozy:'#d4c070'};
+    let mi=0;
+    document.body.addEventListener('dblclick',function(e){
+        if(e.target.closest('.settings-panel,.settings-overlay,.react-btn,.circle-btn,.send-btn,.icon-btn,.session-btn,.start-screen,.exchange-counter'))return;
+        mi=(mi+1)%moods.length;const m=moods[mi];
+        document.getElementById('moodGradient').setAttribute('data-mood',m);
+        document.getElementById('masterMoodDot').style.background=mc[m];
+        document.getElementById('masterMoodLabel').style.color=mtc[m];
+        document.getElementById('masterMoodLabel').textContent=m;
+        const mm=document.getElementById('masterMood');mm.style.background=mc[m]+'26';mm.style.borderColor=mc[m]+'4D';
+    });
+
+    document.getElementById('chatArea').scrollTop=document.getElementById('chatArea').scrollHeight;
+</script>
+</body>
+</html>
