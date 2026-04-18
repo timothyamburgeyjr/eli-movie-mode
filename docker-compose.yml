@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  movie-mode:
+    build: .
+    container_name: eli-movie-mode
+    restart: unless-stopped
+    ports:
+      - "8765:8000"
+    volumes:
+      # SQLite DB + any other internal state
+      - ./data:/app/data
+      - ./static/frames:/app/static/frames
+      # Bind-mount D:/Vault (host) → /journals (container). Tim's journal files
+      # land on the host filesystem so external skills can pick them up.
+      - D:/Vault:/journals
+    environment:
+      # Override the default journal path so writes go to the bind-mount.
+      JOURNAL_DIR: /journals
+    env_file:
+      - .env

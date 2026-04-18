@@ -1,5 +1,12 @@
 .env
 data/
-static/frames/
+static/frames/*
+!static/frames/.gitkeep
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+.DS_Store
+

@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Movie Mode — Project Eli</title>
+    <style>
+        :root {
+            --bg-deep: #0a0a0f;
+            --bg-surface: #12121c;
+            --bg-elevated: #1a1a2e;
+            --border: #252535;
+            --text-primary: #e8e8ee;
+            --text-secondary: #999;
+            --text-muted: #555566;
+            --accent: #6366f1;
+            --accent-hover: #4f46e5;
+            --user-bubble: #1e3a5f;
+            --eli-bubble: #172917;
+            --context-bg: #0e0e14;
+            --system-color: #555566;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --emote-color: #b8a0d8;
+            --emote-bg: rgba(120, 80, 180, 0.06);
+            --mood-dread: #8c1414;
+            --mood-tense: #3060b0;
+            --mood-humor: #b48c1e;
+            --mood-awe: #7040c0;
+            --mood-adrenaline: #c05020;
+            --mood-cozy: #a08830;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg-deep); color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            height: 100vh; height: 100dvh;
+            display: flex; flex-direction: column; overflow: hidden; position: relative;
+        }
+
+        /* ─── Mood Gradient ─── */
+        .mood-gradient {
+            position: fixed; inset: 0; pointer-events: none; z-index: 0;
+            transition: box-shadow 3s ease, background 3s ease, opacity 1s ease;
+        }
+        .mood-gradient[data-mood="dread"] { box-shadow: inset 0 0 250px 100px rgba(140,20,20,0.13); background: radial-gradient(ellipse at 50% 100%, rgba(100,10,10,0.06) 0%, transparent 70%); }
+        .mood-gradient[data-mood="tense"] { box-shadow: inset 0 0 250px 100px rgba(30,60,140,0.12); background: radial-gradient(ellipse at 50% 100%, rgba(20,40,100,0.06) 0%, transparent 70%); }
+        .mood-gradient[data-mood="humor"] { box-shadow: inset 0 0 250px 100px rgba(180,140,30,0.11); background: radial-gradient(ellipse at 50% 100%, rgba(140,110,20,0.05) 0%, transparent 70%); }
+        .mood-gradient[data-mood="awe"] { box-shadow: inset 0 0 250px 100px rgba(100,50,180,0.13); background: radial-gradient(ellipse at 50% 100%, rgba(80,30,150,0.06) 0%, transparent 70%); }
+        .mood-gradient[data-mood="adrenaline"] { box-shadow: inset 0 0 250px 100px rgba(200,80,20,0.12); background: radial-gradient(ellipse at 50% 100%, rgba(160,60,10,0.05) 0%, transparent 70%); }
+        .mood-gradient[data-mood="cozy"] { box-shadow: inset 0 0 250px 100px rgba(160,120,40,0.10); background: radial-gradient(ellipse at 50% 100%, rgba(130,100,30,0.05) 0%, transparent 70%); }
+        .mood-gradient.standby { opacity: 0.15 !important; }
+
+        /* ─── Start Screen ─── */
+        .start-screen {
+            position: fixed; inset: 0; z-index: 50; background: var(--bg-deep);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 20px; transition: opacity 0.4s;
+        }
+        .start-screen.hidden { opacity: 0; pointer-events: none; }
+        .start-logo { font-size: 3rem; }
+        .start-title { font-size: 1.4rem; font-weight: 700; }
+        .start-subtitle { font-size: 0.8rem; color: var(--text-muted); text-align: center; max-width: 260px; line-height: 1.5; }
+        .start-btn {
+            padding: 14px 40px; border-radius: 14px; background: var(--success); border: none; color: #fff;
+            font-size: 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.15s;
+        }
+        .start-btn:hover { background: #16a34a; }
+        .start-btn:disabled { opacity: 0.6; cursor: wait; }
+        .start-last-session { margin-top: 16px; padding: 12px 20px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px; text-align: center; min-width: 240px; }
+        .start-last-session.hidden { display: none; }
+        .start-last-label { font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .start-last-title { font-size: 0.82rem; font-weight: 600; margin-top: 2px; }
+        .start-last-detail { font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; }
+
+        /* ─── Header ─── */
+        .header { background: var(--bg-surface); border-bottom: 1px solid var(--border); padding: 10px 14px 8px; flex-shrink: 0; position: relative; z-index: 2; }
+        .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+        .header-left { display: flex; align-items: center; gap: 8px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 6px var(--success); flex-shrink: 0; transition: background 0.4s, box-shadow 0.4s; }
+        .status-dot.standby { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+        .status-dot.off { background: #444; box-shadow: none; }
+        .header-left h1 { font-size: 1rem; font-weight: 700; }
+        .status-label { font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 4px; transition: all 0.4s; }
+        .status-label.live { color: var(--success); background: rgba(34,197,94,0.1); }
+        .status-label.standby { color: var(--warning); background: rgba(245,158,11,0.15); }
+        .status-label.ended { color: #666; background: rgba(68,68,68,0.15); }
+        .status-label.idle { color: #666; background: rgba(68,68,68,0.15); }
+        .master-mood { display: flex; align-items: center; gap: 4px; margin-left: 4px; padding: 2px 8px; border-radius: 10px; transition: all 1s ease; }
+        .master-mood.hidden { display: none; }
+        .master-mood-dot { width: 6px; height: 6px; border-radius: 50%; transition: background 1s; }
+        .master-mood-label { font-size: 0.58rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; transition: color 1s; }
+        .header-actions { display: flex; gap: 6px; align-items: center; }
+        .icon-btn { width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; position: relative; }
+        .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .icon-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .icon-btn.standby-active { background: rgba(245,158,11,0.15); border-color: var(--warning); color: var(--warning); }
+        .icon-btn .tip { display: none; position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--bg-elevated); border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 0.6rem; color: var(--text-secondary); z-index: 10; }
+        .icon-btn:hover .tip { display: block; }
+
+        /* ─── Tri-state session button ─── */
+        .session-btn {
+            padding: 6px 14px; border-radius: 8px; font-size: 0.75rem; font-weight: 600; cursor: pointer;
+            display: flex; align-items: center; gap: 5px; transition: all 0.2s; border: 1px solid;
+        }
+        .session-btn.start { border-color: var(--success); color: var(--success); background: transparent; }
+        .session-btn.start:hover { background: var(--success); color: #fff; }
+        .session-btn.stop { border-color: var(--danger); color: var(--danger); background: transparent; }
+        .session-btn.stop:hover { background: var(--danger); color: #fff; }
+        .session-btn.clear { border-color: var(--text-muted); color: var(--text-muted); background: transparent; }
+        .session-btn.clear:hover { background: var(--bg-elevated); color: var(--text-secondary); }
+
+        .movie-bar { display: flex; align-items: center; gap: 8px; }
+        .movie-bar.empty .movie-poster { background: #222; }
+        .movie-poster { width: 28px; height: 40px; border-radius: 4px; background: #222; flex-shrink: 0; overflow: hidden; }
+        .movie-meta { flex: 1; min-width: 0; }
+        .movie-title { font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .movie-sub { font-size: 0.68rem; color: var(--text-muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+        /* ─── Exchange Counter ─── */
+        .exchange-counter {
+            font-size: 0.6rem; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+            background: rgba(99,102,241,0.08); color: var(--accent); white-space: nowrap;
+            transition: all 0.3s;
+        }
+        .exchange-counter.warning { color: var(--warning); background: rgba(245,158,11,0.1); }
+        .exchange-counter.danger { color: var(--danger); background: rgba(239,68,68,0.1); }
+
+        /* ─── Standby ─── */
+        .chat-area.standby-dim { opacity: 0.35; pointer-events: none; transition: opacity 0.6s; }
+
+        /* ─── Chat ─── */
+        .chat-area { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; scroll-behavior: smooth; position: relative; z-index: 1; transition: opacity 0.6s; }
+        .chat-area::-webkit-scrollbar { width: 3px; }
+        .chat-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        .chat-empty { text-align: center; color: var(--text-muted); font-size: 0.78rem; padding: 40px 20px; line-height: 1.6; font-style: italic; }
+        .msg-container { display: flex; flex-direction: column; gap: 2px; }
+        .msg-container.user-side { align-items: flex-end; }
+        .msg-container.eli-side { align-items: flex-start; }
+        .sender-line { display: flex; align-items: center; gap: 4px; padding: 0 4px; margin-bottom: 1px; }
+        .sender-name { font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+        .sender-name.tim-name { color: #60a0e0; }
+        .sender-name.eli-name { color: #4ade80; }
+        .msg-mood-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .msg-stoned { font-size: 0.45rem; display: flex; gap: 0; }
+        .msg-stoned .leaf { opacity: 0.2; }
+        .msg-stoned .leaf.on { opacity: 1; }
+        .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; word-wrap: break-word; }
+        .msg.user { background: var(--user-bubble); border-bottom-right-radius: 4px; }
+        .msg.eli { background: var(--eli-bubble); border-bottom-left-radius: 4px; }
+        .msg.system { align-self: center; background: transparent; color: var(--system-color); font-size: 0.75rem; font-style: italic; padding: 5px 0; max-width: 100%; }
+        .msg.system.standby-msg { color: var(--warning); }
+        .timestamp { font-size: 0.58rem; color: var(--text-muted); margin-top: 3px; display: block; text-align: right; }
+        .latency-badge { display: inline-block; font-size: 0.55rem; color: var(--text-muted); background: rgba(255,255,255,0.04); padding: 1px 4px; border-radius: 3px; margin-left: 4px; }
+        .emote-text { color: var(--emote-color); font-style: italic; font-size: 0.85rem; line-height: 1.55; padding: 6px 0; border-left: 2px solid rgba(120,80,180,0.25); padding-left: 10px; margin-bottom: 6px; background: var(--emote-bg); border-radius: 0 6px 6px 0; }
+        .spoken-text { font-size: 0.9rem; line-height: 1.5; }
+        .eli-typing { align-self: flex-start; display: none; align-items: center; gap: 6px; padding: 6px 10px; margin: 2px 0; background: rgba(74, 222, 128, 0.08); border-radius: 10px; max-width: 80%; }
+        .eli-typing.visible { display: flex; }
+        .eli-typing-label { font-size: 0.65rem; color: #4ade80; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+        .eli-typing-dots { display: flex; gap: 3px; }
+        .eli-typing-dots span { width: 4px; height: 4px; border-radius: 50%; background: #4ade80; opacity: 0.4; animation: eli-bounce 1.2s infinite ease-in-out both; }
+        .eli-typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .eli-typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes eli-bounce { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
+        .context-block { max-width: 92%; background: var(--context-bg); border: 1px solid #1a1a28; border-left: 3px solid #3a3a50; border-radius: 8px; overflow: hidden; margin: 2px 0; }
+        .context-header { padding: 6px 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.72rem; color: var(--text-muted); }
+        .context-header:hover { color: var(--text-secondary); }
+        .context-header .arrow { font-size: 0.6rem; transition: transform 0.2s; display: inline-block; }
+        .context-header .arrow.open { transform: rotate(90deg); }
+        .context-body { display: none; padding: 0 12px 10px; font-size: 0.8rem; line-height: 1.55; color: #8888aa; font-style: italic; }
+        .context-body.open { display: block; }
+        .trivia-card { max-width: 92%; margin: 2px 0; background: linear-gradient(135deg, #14120e, #181410); border: 1px solid #2a2518; border-left: 3px solid #c4a860; border-radius: 8px; padding: 8px 12px; font-size: 0.78rem; line-height: 1.5; color: #c4a860; }
+        .trivia-card::before { content: '🎬 '; }
+        .trivia-card .trivia-source { display: block; font-size: 0.6rem; color: var(--text-muted); margin-top: 4px; font-style: italic; }
+        .briefing-card { align-self: stretch; background: linear-gradient(135deg, #12121e, #161628); border: 1px solid #252540; border-radius: 14px; padding: 16px; margin: 6px 0; }
+        .briefing-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+        .briefing-poster { width: 50px; height: 74px; border-radius: 6px; background: #222; flex-shrink: 0; overflow: hidden; }
+        .briefing-title { font-size: 0.95rem; font-weight: 700; }
+        .briefing-subtitle { font-size: 0.7rem; color: var(--text-muted); margin-top: 2px; }
+        .briefing-scores { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+        .briefing-score { font-size: 0.62rem; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+        .score-rt { background: #2a1a1a; color: #e74c3c; }
+        .score-imdb { background: #2a2a1a; color: #f5c518; }
+        .score-meta { background: #1a2a1a; color: #66cc33; }
+        .briefing-body { font-size: 0.82rem; line-height: 1.55; color: var(--text-secondary); font-style: italic; }
+        .briefing-tag { font-size: 0.62rem; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 10px; display: block; }
+        .quick-reaction-msg { align-self: center; display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+        .qr-emoji { font-size: 1rem; }
+        .qr-text { font-size: 0.78rem; color: var(--text-secondary); font-style: italic; }
+        .catchup-card { align-self: stretch; background: linear-gradient(135deg, #121220, #14142a); border: 1px solid #303050; border-left: 3px solid var(--accent); border-radius: 10px; padding: 12px 14px; margin: 4px 0; }
+        .catchup-header { font-size: 0.7rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+        .catchup-body { font-size: 0.82rem; line-height: 1.55; color: var(--text-secondary); }
+        .catchup-span { font-size: 0.65rem; color: var(--text-muted); margin-top: 6px; display: block; }
+        .movie-divider { align-self: center; display: flex; align-items: center; gap: 10px; padding: 10px 0; width: 100%; }
+        .movie-divider::before, .movie-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+        .movie-divider span { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; }
+        .stats-card { align-self: stretch; background: linear-gradient(135deg, #12121e, #161628); border: 1px solid #252540; border-radius: 14px; padding: 16px; margin: 6px 0; }
+        .stats-header { font-size: 0.85rem; font-weight: 700; margin-bottom: 4px; }
+        .stats-subtitle { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 12px; }
+        .stats-movies { display: flex; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #252540; flex-wrap: wrap; }
+        .stats-movie-chip { display: flex; align-items: center; gap: 6px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+        .chip-emoji { font-size: 1rem; }
+        .chip-info { display: flex; flex-direction: column; }
+        .chip-title { font-size: 0.72rem; font-weight: 600; }
+        .chip-count { font-size: 0.6rem; color: var(--accent); }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .stat-item { text-align: center; }
+        .stat-value { font-size: 1.2rem; font-weight: 700; color: var(--accent); }
+        .stat-label { font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+        .stats-highlight { margin-top: 12px; padding-top: 12px; border-top: 1px solid #252540; font-size: 0.78rem; color: var(--text-secondary); line-height: 1.5; font-style: italic; }
+        .stats-tag { font-size: 0.62rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 6px; display: block; }
+        .stats-tag.journal { color: var(--success); }
+        .stats-tag.eli { color: #4ade80; }
+        .signoff-card { align-self: stretch; background: linear-gradient(135deg, #1a160e, #1e1a10); border: 1px solid #302818; border-left: 3px solid #d4a855; border-radius: 10px; padding: 12px 14px; margin: 4px 0; }
+        .signoff-header { font-size: 0.68rem; font-weight: 700; color: #d4a855; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+        .signoff-body { font-size: 0.82rem; line-height: 1.55; color: #c8b88a; font-style: italic; }
+
+        /* ─── Connection banner ─── */
+        .conn-banner { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: var(--warning); color: #000; padding: 6px 14px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: none; }
+        .conn-banner.visible { display: block; }
+
+        /* ─── Reactions ─── */
+        .quick-reactions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px 0; flex-shrink: 0; z-index: 1; justify-content: space-between; }
+        .quick-reactions.standby-dim { opacity: 0.25; pointer-events: none; }
+        .react-btn {
+            flex: 1 1 calc(25% - 6px);
+            min-width: 72px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            padding: 7px 4px;
+            border-radius: 12px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+            text-align: center;
+        }
+        .react-btn:hover { border-color: var(--accent); transform: scale(1.04); color: var(--text-primary); }
+        .react-btn:active { transform: scale(0.95); background: var(--accent); color: #fff; }
+        .react-btn .r-emoji { font-size: 1.35rem; line-height: 1; }
+        .react-btn .r-label { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.02em; }
+
+        /* ─── Input ─── */
+        .input-area { background: var(--bg-surface); border-top: 1px solid var(--border); padding: 10px 14px; display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0; z-index: 1; }
+        .input-area.standby-dim { opacity: 0.3; }
+        .input-area.standby-dim textarea, .input-area.standby-dim .send-btn { pointer-events: none; }
+        .circle-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; transition: all 0.15s; }
+        .circle-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .circle-btn.active { background: #1a1a3a; border-color: var(--accent); color: var(--accent); }
+        .circle-btn .tip { display: none; position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--bg-elevated); border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 0.65rem; color: var(--text-secondary); }
+        .circle-btn:hover .tip { display: block; }
+        .away-timer { position: absolute; top: -6px; right: -6px; background: var(--accent); color: #fff; font-size: 0.5rem; font-weight: 700; padding: 1px 4px; border-radius: 8px; display: none; }
+        .circle-btn.active .away-timer { display: block; }
+        .input-area textarea { flex: 1; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; color: var(--text-primary); font-family: inherit; font-size: 0.95rem; resize: none; outline: none; min-height: 40px; max-height: 100px; line-height: 1.4; }
+        .input-area textarea:focus { border-color: var(--accent); }
+        .input-area textarea::placeholder { color: var(--text-muted); }
+        .send-btn { width: 40px; height: 40px; border-radius: 50%; background: var(--accent); border: none; color: #fff; font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.15s, opacity 0.2s; }
+        .send-btn:hover { background: var(--accent-hover); }
+        .send-btn:disabled { background: var(--bg-elevated); opacity: 0.45; cursor: not-allowed; }
+        .react-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+        .react-btn:disabled:hover { border-color: var(--border); transform: none; }
+        .char-counter { font-size: 0.58rem; color: var(--text-muted); align-self: center; min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; transition: color 0.2s; }
+        .char-counter.warning { color: var(--warning); }
+        .char-counter.danger { color: var(--danger); }
+        .char-counter.hidden { display: none; }
+
+        /* ─── Settings ─── */
+        .settings-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; }
+        .settings-overlay.open { display: block; }
+        .settings-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 310px; max-width: 85vw; background: var(--bg-surface); border-left: 1px solid var(--border); z-index: 101; padding: 20px; display: none; flex-direction: column; gap: 14px; overflow-y: auto; }
+        .settings-panel.open { display: flex; }
+        .settings-panel::-webkit-scrollbar { width: 3px; }
+        .settings-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        .settings-panel h2 { font-size: 1rem; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
+        .settings-panel h2 .close-btn { background: none; border: none; color: var(--text-muted); font-size: 1.2rem; cursor: pointer; }
+        .setting-group { display: flex; flex-direction: column; gap: 4px; }
+        .setting-label { font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+        .setting-desc { font-size: 0.68rem; color: var(--text-muted); line-height: 1.4; }
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+        .toggle-row .label { font-size: 0.82rem; }
+        .toggle { width: 38px; height: 20px; border-radius: 10px; background: var(--border); position: relative; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
+        .toggle.on { background: var(--accent); }
+        .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #fff; top: 2px; left: 2px; transition: transform 0.2s; }
+        .toggle.on::after { transform: translateX(18px); }
+        .setting-select { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; color: var(--text-primary); font-size: 0.82rem; outline: none; -webkit-appearance: none; }
+        .setting-input { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--text-primary); font-size: 0.82rem; outline: none; width: 100%; }
+        .setting-input:focus { border-color: var(--accent); }
+        .setting-btn { padding: 8px 14px; border-radius: 8px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.8rem; cursor: pointer; text-align: center; }
+        .setting-btn:hover { border-color: var(--accent); }
+        .setting-divider { height: 1px; background: var(--border); margin: 2px 0; }
+        .ingestion-row { display: flex; gap: 6px; margin-top: 4px; }
+        .ingestion-btn { flex: 1; padding: 6px 4px; border-radius: 8px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.7rem; cursor: pointer; transition: all 0.15s; text-align: center; }
+        .ingestion-btn:hover { border-color: #2a5a2a; }
+        .ingestion-btn.active { background: #0a1a0a; border-color: #2a5a2a; color: #4ade80; }
+        .ingestion-status-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
+        .ingestion-status { font-size: 0.65rem; color: #4ade80; flex: 1; }
+        .ingestion-reset { font-size: 0.6rem; padding: 4px 10px; border-radius: 6px; background: transparent; border: 1px solid var(--border); color: var(--text-muted); cursor: pointer; transition: all 0.15s; font-weight: 600; letter-spacing: 0.02em; }
+        .ingestion-reset:hover { border-color: var(--warning); color: var(--warning); }
+        .setting-feedback { font-size: 0.68rem; color: var(--success); padding: 4px 0; min-height: 1.2em; }
+        .setting-feedback.error { color: var(--danger); }
+
+        .logout-link { font-size: 0.72rem; color: var(--text-muted); text-align: center; padding: 4px 0; text-decoration: none; }
+        .logout-link:hover { color: var(--text-secondary); }
+
+        @media (min-width: 768px) { body { max-width: 520px; margin: 0 auto; border-left: 1px solid var(--border); border-right: 1px solid var(--border); } }
+    </style>
+</head>
+<body>
+
+<!-- ═══ Connection banner ═══ -->
+<div class="conn-banner" id="connBanner">Reconnecting…</div>
+
+<!-- ═══ Start Screen ═══ -->
+<div class="start-screen" id="startScreen">
+    <div class="start-logo">🎬</div>
+    <div class="start-title">Movie Mode</div>
+    <div class="start-subtitle">Watch movies with Eli. Every comment you send becomes a shared experience — powered by Gemini and Kindroid.</div>
+    <button class="start-btn" id="startBtn" onclick="startSession()">▶ Start Movie Mode</button>
+    <div class="start-last-session hidden" id="startLastSession">
+        <div class="start-last-label">Last session</div>
+        <div class="start-last-title" id="startLastTitle"></div>
+        <div class="start-last-detail" id="startLastDetail"></div>
+    </div>
+</div>
+
+<div class="mood-gradient" id="moodGradient"></div>
+
+<!-- ═══ Header ═══ -->
+<div class="header">
+    <div class="header-top">
+        <div class="header-left">
+            <span class="status-dot off" id="statusDot"></span>
+            <h1>Movie Mode</h1>
+            <span class="status-label idle" id="statusLabel">Idle</span>
+            <div class="master-mood hidden" id="masterMood">
+                <div class="master-mood-dot" id="masterMoodDot"></div>
+                <span class="master-mood-label" id="masterMoodLabel"></span>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button class="icon-btn" id="standbyBtn" title="Emergency stop" onclick="handleStandbyTap()">🛡<span class="tip">Double-tap: standby</span></button>
+            <button class="icon-btn" title="Settings" onclick="toggleSettings()">⚙</button>
+            <button class="session-btn start" id="sessionBtn" onclick="handleSessionBtn()">▶ Start</button>
+        </div>
+    </div>
+    <div class="movie-bar empty" id="movieBar">
+        <div class="movie-poster" id="moviePoster"><svg viewBox="0 0 28 40" style="width:100%;height:100%;"><rect width="28" height="40" fill="#1a1a28"/><text x="14" y="24" text-anchor="middle" font-size="14">🎬</text></svg></div>
+        <div class="movie-meta">
+            <div class="movie-title" id="movieTitle">No movie detected</div>
+            <div class="movie-sub">
+                <span id="movieProgress">—</span>
+                <span class="exchange-counter" id="exchangeCounter">0 / 1000</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Chat ═══ -->
+<div class="chat-area" id="chatArea">
+    <div class="chat-empty" id="chatEmpty">Waiting for a session. Tap ▶ Start to begin.</div>
+    <div class="eli-typing" id="eliTyping">
+        <span class="eli-typing-label">Eli</span>
+        <span class="eli-typing-dots"><span></span><span></span><span></span></span>
+    </div>
+</div>
+
+<!-- ═══ Reactions ═══ -->
+<div class="quick-reactions" id="quickReactions">
+    <button class="react-btn" data-emoji="😱" data-label="Scared"><span class="r-emoji">😱</span><span class="r-label">Scared</span></button>
+    <button class="react-btn" data-emoji="😂" data-label="Laughing"><span class="r-emoji">😂</span><span class="r-label">Laughing</span></button>
+    <button class="react-btn" data-emoji="🤯" data-label="Mind blown"><span class="r-emoji">🤯</span><span class="r-label">Mind blown</span></button>
+    <button class="react-btn" data-emoji="❤️" data-label="Moved"><span class="r-emoji">❤️</span><span class="r-label">Moved</span></button>
+    <button class="react-btn" data-emoji="💀" data-label="Wrecked"><span class="r-emoji">💀</span><span class="r-label">Wrecked</span></button>
+    <button class="react-btn" data-emoji="👀" data-label="Caught it"><span class="r-emoji">👀</span><span class="r-label">Caught it</span></button>
+    <button class="react-btn" data-emoji="🔥" data-label="Fire"><span class="r-emoji">🔥</span><span class="r-label">Fire</span></button>
+    <button class="react-btn" data-emoji="😮‍💨" data-label="Exhale"><span class="r-emoji">😮‍💨</span><span class="r-label">Exhale</span></button>
+</div>
+
+<!-- ═══ Input ═══ -->
+<div class="input-area" id="inputArea">
+    <button class="circle-btn" id="awayBtn" onclick="toggleAway()">⏸<span class="tip">Away · auto catch-up on return</span><span class="away-timer" id="awayTimer">0:00</span></button>
+    <textarea id="messageInput" placeholder="Message Eli..." rows="1" maxlength="1000"></textarea>
+    <span class="char-counter" id="charCounter"></span>
+    <button class="send-btn" id="sendBtn" onclick="sendMessage()">▶</button>
+</div>
+
+<!-- ═══ Settings ═══ -->
+<div class="settings-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
+<div class="settings-panel" id="settingsPanel">
+    <h2>Settings <button class="close-btn" onclick="toggleSettings()">✕</button></h2>
+    <div class="setting-group">
+        <span class="setting-label">Display</span>
+        <div class="toggle-row"><span class="label">Emotes (narrative text)</span><div class="toggle" data-setting="emotes_visible" onclick="toggleSetting(this)"></div></div>
+        <div class="toggle-row"><span class="label">Trivia cards</span><div class="toggle" data-setting="trivia_visible" onclick="toggleSetting(this)"></div></div>
+        <div class="toggle-row"><span class="label">Mood gradient</span><div class="toggle" data-setting="mood_gradient" onclick="toggleSetting(this)"></div></div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
+        <span class="setting-label">🌿 Vibe Check</span>
+        <span class="setting-desc">Log when you partake. The system models onset/peak/taper and adjusts Gemini's narrative voice.</span>
+        <div style="padding:6px 0;"><span style="font-size:0.75rem;color:var(--text-secondary);font-weight:600;">Tim</span>
+            <div class="ingestion-row" data-who="tim">
+                <button class="ingestion-btn" data-method="smoke" onclick="logIngestion(this,'tim','smoke')">💨 Smoke</button>
+                <button class="ingestion-btn" data-method="edible" onclick="logIngestion(this,'tim','edible')">🍬 Edible</button>
+                <button class="ingestion-btn" data-method="dab" onclick="logIngestion(this,'tim','dab')">🔥 Dab</button>
+                <button class="ingestion-btn active" data-method="sober" onclick="logIngestion(this,'tim','sober')">☕ Sober</button>
+            </div>
+            <div class="ingestion-status-row">
+                <div class="ingestion-status" id="timStatus">☕ Sober</div>
+                <button class="ingestion-reset" onclick="resetIngestion('tim')">↻ Reset</button>
+            </div>
+        </div>
+        <div style="padding:6px 0;"><span style="font-size:0.75rem;color:var(--text-secondary);font-weight:600;">Eli</span>
+            <div class="ingestion-row" data-who="eli">
+                <button class="ingestion-btn" data-method="smoke" onclick="logIngestion(this,'eli','smoke')">💨 Smoke</button>
+                <button class="ingestion-btn" data-method="edible" onclick="logIngestion(this,'eli','edible')">🍬 Edible</button>
+                <button class="ingestion-btn" data-method="dab" onclick="logIngestion(this,'eli','dab')">🔥 Dab</button>
+                <button class="ingestion-btn active" data-method="sober" onclick="logIngestion(this,'eli','sober')">☕ Sober</button>
+            </div>
+            <div class="ingestion-status-row">
+                <div class="ingestion-status" id="eliStatus">☕ Sober</div>
+                <button class="ingestion-reset" onclick="resetIngestion('eli')">↻ Reset</button>
+            </div>
+        </div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
+        <span class="setting-label">Capture</span>
+        <div class="toggle-row"><span class="label">Capture window</span>
+            <select class="setting-select" id="captureSeconds" data-setting="capture_seconds" style="width:80px;text-align:center;" onchange="persistSelect(this)">
+                <option value="10">10s</option>
+                <option value="20">20s</option>
+                <option value="30">30s</option>
+                <option value="60">60s</option>
+            </select>
+        </div>
+        <div class="toggle-row"><span class="label">Deep trivia (Google Search)</span><div class="toggle" data-setting="trivia_grounding" onclick="toggleSetting(this)"></div></div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
+        <span class="setting-label">Context Window</span>
+        <div class="toggle-row"><span class="label">Conversation history</span>
+            <select class="setting-select" id="contextExchanges" data-setting="context_exchanges" style="width:110px;text-align:center;" onchange="persistSelect(this)">
+                <option value="3">3 exchanges</option>
+                <option value="5">5 exchanges</option>
+                <option value="10">10 exchanges</option>
+                <option value="999">Full session</option>
+            </select>
+        </div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
+        <span class="setting-label">Session</span>
+        <div class="toggle-row"><span class="label">Auto journal on session end</span><div class="toggle" data-setting="auto_journal" onclick="toggleSetting(this)"></div></div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
+        <span class="setting-label">Security</span>
+        <input type="password" class="setting-input" id="pwCurrent" placeholder="Current password">
+        <input type="password" class="setting-input" id="pwNew" placeholder="New password" style="margin-top:4px;">
+        <input type="password" class="setting-input" id="pwConfirm" placeholder="Confirm" style="margin-top:4px;">
+        <button class="setting-btn" style="margin-top:4px;" onclick="updatePassword()">Update Password</button>
+        <div class="setting-feedback" id="pwFeedback"></div>
+    </div>
+    <div class="setting-divider"></div>
+    <a class="logout-link" href="#" onclick="logout(event)">Sign out</a>
+</div>
+
+<script>
+    // ═══════════════════════════════════════════════════════════
+    //  State
+    // ═══════════════════════════════════════════════════════════
+    const state = {
+        session: null,
+        messages: [],
+        movies: [],
+        lastSession: null,
+        settings: {},
+        usage: 0,
+        budget: 1000,
+        standby: false,
+        away: false,
+        awayStart: null,
+        awayInterval: null,
+        ws: null,
+        wsBackoff: 1000,
+        renderedMessageIds: new Set(),
+        plex: {},
+        plexUnreachable: false,
+        sessionCost: { total_usd: 0, calls: 0, by_type: {} },
+        todayCostUsd: 0,
+    };
+
+    const MOOD_COLORS = {
+        dread: '#8c1414', tense: '#3060b0', humor: '#b48c1e',
+        awe: '#7040c0', adrenaline: '#c05020', cozy: '#a08830',
+    };
+    const MOOD_TEXT_COLORS = {
+        dread: '#d46b6b', tense: '#6b8fd4', humor: '#d4b86b',
+        awe: '#a06bd4', adrenaline: '#d49050', cozy: '#d4c070',
+    };
+
+    // ═══════════════════════════════════════════════════════════
+    //  DOM helpers
+    // ═══════════════════════════════════════════════════════════
+    function $(id) { return document.getElementById(id); }
+
+    function el(tag, props = {}, children = []) {
+        const node = document.createElement(tag);
+        for (const [k, v] of Object.entries(props)) {
+            if (k === 'class') node.className = v;
+            else if (k === 'style') Object.assign(node.style, v);
+            else if (k === 'dataset') Object.assign(node.dataset, v);
+            else if (k === 'html') node.innerHTML = v;
+            else if (k === 'text') node.textContent = v;
+            else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
+            else node.setAttribute(k, v);
+        }
+        for (const child of [].concat(children)) {
+            if (child == null || child === false) continue;
+            node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+        }
+        return node;
+    }
+
+    function formatTime(iso) {
+        if (!iso) return '';
+        try {
+            const d = new Date(iso);
+            return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        } catch { return ''; }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Emote parsing + shortcut expansion
+    // ═══════════════════════════════════════════════════════════
+    const EMOTE_RE = /_\(\*([\s\S]+?)\*\)_/g;
+
+    function parseInlineSegments(text) {
+        if (!text) return [];
+        const out = [];
+        let pos = 0;
+        for (const match of text.matchAll(EMOTE_RE)) {
+            if (match.index > pos) {
+                const before = text.slice(pos, match.index).trim();
+                if (before) out.push({ type: 'spoken', text: before });
+            }
+            const emote = match[1].trim();
+            if (emote) out.push({ type: 'emote', text: emote });
+            pos = match.index + match[0].length;
+        }
+        if (pos < text.length) {
+            const after = text.slice(pos).trim();
+            if (after) out.push({ type: 'spoken', text: after });
+        }
+        return out;
+    }
+
+    // Mobile-friendly shortcut: `*text*` becomes `_(*text*)_`, but ONLY when
+    // the content reads like a first-person action (pronoun start or verb
+    // form). Titles like `*Ex Machina*` / `*South Park*` stay italic.
+    // Existing `_(*...*)_` blocks are left alone.
+    const _EMOTE_PRONOUN_START = /^(?:I\b|I['\u2019]|my\b|we\b|our\b)/i;
+    const _VERB_SUFFIX_RE = /^([A-Za-z]{3,})(s|es|ing|ed)\b/;
+    const _NON_VERB_S_ENDINGS = new Set([
+        'this', 'his', 'its', 'us', 'is', 'yes', 'was', 'has',
+        'as', 'hers', 'theirs',
+    ]);
+
+    function _looksLikeEmote(content) {
+        const s = (content || '').trim();
+        if (!s) return false;
+        if (_EMOTE_PRONOUN_START.test(s)) return true;
+        const firstWord = s.split(/\s+/, 1)[0].replace(/[,.!?;:]+$/, '').toLowerCase();
+        if (_NON_VERB_S_ENDINGS.has(firstWord)) return false;
+        return _VERB_SUFFIX_RE.test(firstWord);
+    }
+
+    function expandEmoteShortcuts(text) {
+        if (!text) return text;
+        const parts = text.split(/(_\(\*[\s\S]+?\*\)_)/g);
+        return parts.map((part, i) => {
+            if (i % 2 === 1) return part;
+            return part.replace(/\*([^*\n]+?)\*/g, (match, inner) => {
+                return _looksLikeEmote(inner) ? `_(*${inner}*)_` : match;
+            });
+        }).join('');
+    }
+
+    // Append `text` to a container, rendering `*text*` runs as <em> for
+    // inline italic emphasis (movie titles, stressed words, etc.).
+    // Conservative: multi-asterisk runs and unmatched asterisks stay literal.
+    function appendInlineMarkdown(container, text) {
+        if (!text) return;
+        const parts = text.split(/(\*[^*\n]+?\*)/g);
+        for (const part of parts) {
+            if (!part) continue;
+            if (part.length > 2 && part.startsWith('*') && part.endsWith('*')) {
+                const em = document.createElement('em');
+                em.textContent = part.slice(1, -1);
+                container.appendChild(em);
+            } else {
+                container.appendChild(document.createTextNode(part));
+            }
+        }
+    }
+
+    function leafSpan(level) {
+        if (!level || level <= 0) return null;
+        const wrap = el('span', { class: 'msg-stoned' });
+        for (let i = 0; i < 3; i++) {
+            wrap.appendChild(el('span', { class: 'leaf' + (i < level ? ' on' : ''), text: '🌿' }));
+        }
+        return wrap;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Message rendering
+    // ═══════════════════════════════════════════════════════════
+    function renderMessage(msg) {
+        if (msg.id != null && state.renderedMessageIds.has(msg.id)) return;
+        if (msg.id != null) state.renderedMessageIds.add(msg.id);
+
+        const chat = $('chatArea');
+        const emptyEl = $('chatEmpty');
+        if (emptyEl) emptyEl.remove();
+
+        const group = el('div', { class: 'msg-group', dataset: { id: msg.id != null ? String(msg.id) : '' } });
+        const built = buildMessageNodes(msg);
+        for (const node of built) group.appendChild(node);
+
+        chat.appendChild(group);
+        // Keep the typing indicator pinned to the bottom of the chat flow.
+        const typing = $('eliTyping');
+        if (typing) chat.appendChild(typing);
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+    function rerenderMessage(msg) {
+        const existing = document.querySelector(`.msg-group[data-id="${msg.id}"]`);
+        if (!existing) { renderMessage(msg); return; }
+        existing.innerHTML = '';
+        for (const node of buildMessageNodes(msg)) existing.appendChild(node);
+    }
+
+    function buildMessageNodes(msg) {
+        const nodes = [];
+
+        if (msg.sender === 'system') {
+            nodes.push(el('div', { class: 'msg system', text: msg.content || '' }));
+            return nodes;
+        }
+
+        if (msg.sender === 'briefing') {
+            nodes.push(buildBriefingCard(msg));
+            return nodes;
+        }
+
+        if (msg.sender === 'catchup') {
+            nodes.push(buildCatchupCard(msg));
+            return nodes;
+        }
+
+        if (msg.sender === 'signoff') {
+            nodes.push(buildSignoffCard(msg));
+            return nodes;
+        }
+
+        if (msg.sender === 'stats') {
+            nodes.push(buildStatsCard(msg));
+            return nodes;
+        }
+
+        if (msg.sender === 'reaction') {
+            const parts = (msg.content || '').split(/\s+/);
+            const emoji = parts[0] || '';
+            const text = parts.slice(1).join(' ');
+            nodes.push(el('div', { class: 'quick-reaction-msg' }, [
+                el('span', { class: 'qr-emoji', text: emoji }),
+                el('span', { class: 'qr-text', text: text }),
+            ]));
+            return nodes;
+        }
+
+        if (msg.sender === 'tim') {
+            const senderLine = el('div', { class: 'sender-line', style: { justifyContent: 'flex-end' } });
+            const leaves = leafSpan(msg.stoned_level_tim);
+            if (leaves) senderLine.appendChild(leaves);
+            senderLine.appendChild(el('span', { class: 'sender-name tim-name', text: 'Tim' }));
+            const bubble = el('div', { class: 'msg user' });
+
+            let segments = Array.isArray(msg.segments) ? msg.segments : [];
+            // Client-side fallback: if server didn't populate segments but the
+            // raw content contains emote blocks, parse here so the bubble still
+            // renders correctly.
+            if (segments.length === 0 && msg.content && msg.content.indexOf('_(*') !== -1) {
+                segments = parseInlineSegments(msg.content);
+            }
+            const emotesOn = isSettingOn('emotes_visible');
+            if (segments.length > 0) {
+                for (const seg of segments) {
+                    const t = (seg && seg.text) || '';
+                    if (!t) continue;
+                    if (seg.type === 'emote') {
+                        if (emotesOn) bubble.appendChild(el('div', { class: 'emote-text', text: t }));
+                    } else {
+                        const spoken = el('div', { class: 'spoken-text' });
+                        appendInlineMarkdown(spoken, t);
+                        bubble.appendChild(spoken);
+                    }
+                }
+            } else {
+                appendInlineMarkdown(bubble, msg.content || '');
+            }
+            bubble.appendChild(el('span', { class: 'timestamp', text: formatTime(msg.timestamp) }));
+            nodes.push(el('div', { class: 'msg-container user-side' }, [senderLine, bubble]));
+
+            // Scene analysis artifacts for Tim's message (scene context + trivia + frame).
+            if (msg.scene_context) {
+                const ctxId = 'ctx-' + msg.id;
+                const header = el('div', { class: 'context-header', onclick: () => toggleContextBlock(ctxId) }, [
+                    el('span', { class: 'arrow', id: ctxId + '-arrow', text: '▶' }),
+                    el('span', { text: 'Scene context' }),
+                    msg.latency_ms ? el('span', { class: 'latency-badge', text: (msg.latency_ms / 1000).toFixed(1) + 's' }) : null,
+                ]);
+                const body = el('div', { class: 'context-body', id: ctxId + '-body', text: msg.scene_context });
+                nodes.push(el('div', { class: 'context-block', id: ctxId }, [header, body]));
+            }
+            if (msg.trivia && isSettingOn('trivia_visible')) {
+                const card = el('div', { class: 'trivia-card' });
+                card.appendChild(document.createTextNode(msg.trivia));
+                card.appendChild(el('span', { class: 'trivia-source', text: 'via Google Search' }));
+                nodes.push(card);
+            }
+            return nodes;
+        }
+
+        if (msg.sender === 'eli') {
+            if (msg.scene_context) {
+                const ctxId = 'ctx-eli-' + msg.id;
+                const header = el('div', { class: 'context-header', onclick: () => toggleContextBlock(ctxId) }, [
+                    el('span', { class: 'arrow', id: ctxId + '-arrow', text: '▶' }),
+                    el('span', { text: 'Scene context' }),
+                    msg.latency_ms ? el('span', { class: 'latency-badge', text: (msg.latency_ms / 1000).toFixed(1) + 's' }) : null,
+                ]);
+                const body = el('div', { class: 'context-body', id: ctxId + '-body', text: msg.scene_context });
+                nodes.push(el('div', { class: 'context-block', id: ctxId }, [header, body]));
+            }
+            if (msg.trivia && isSettingOn('trivia_visible')) {
+                const card = el('div', { class: 'trivia-card' });
+                card.appendChild(document.createTextNode(msg.trivia));
+                card.appendChild(el('span', { class: 'trivia-source', text: 'via Google Search' }));
+                nodes.push(card);
+            }
+
+            const senderLine = el('div', { class: 'sender-line' }, [
+                el('span', { class: 'sender-name eli-name', text: 'Eli' }),
+                msg.mood ? el('div', { class: 'msg-mood-dot', style: { background: MOOD_COLORS[msg.mood] || '#555' } }) : null,
+            ]);
+            const leaves = leafSpan(msg.stoned_level_eli);
+            if (leaves) senderLine.appendChild(leaves);
+
+            const container = el('div', { class: 'msg-container eli-side' }, [senderLine]);
+            const bubble = el('div', { class: 'msg eli' });
+
+            const segments = Array.isArray(msg.segments) ? msg.segments : [];
+            const emotesOn = isSettingOn('emotes_visible');
+            const renderSpoken = (container, t) => {
+                const div = el('div', { class: 'spoken-text' });
+                appendInlineMarkdown(div, t);
+                container.appendChild(div);
+            };
+            if (segments.length > 0) {
+                // Preserve the alternating order Kindroid returned.
+                for (const seg of segments) {
+                    const t = (seg && seg.text) || '';
+                    if (!t) continue;
+                    if (seg.type === 'emote') {
+                        if (emotesOn) bubble.appendChild(el('div', { class: 'emote-text', text: t }));
+                    } else {
+                        renderSpoken(bubble, t);
+                    }
+                }
+            } else {
+                // Legacy fallback: emote block above, spoken below.
+                if (msg.emote_text && emotesOn) {
+                    bubble.appendChild(el('div', { class: 'emote-text', text: msg.emote_text }));
+                }
+                if (msg.spoken_text) {
+                    renderSpoken(bubble, msg.spoken_text);
+                } else if (msg.content) {
+                    renderSpoken(bubble, msg.content);
+                }
+            }
+            bubble.appendChild(el('span', { class: 'timestamp', text: formatTime(msg.timestamp) }));
+            container.appendChild(bubble);
+            nodes.push(container);
+            return nodes;
+        }
+
+        return nodes;
+    }
+
+    function buildSignoffCard(msg) {
+        const card = el('div', { class: 'signoff-card' });
+        card.appendChild(el('div', { class: 'signoff-header', text: '📨 Sign-off sent to Eli' }));
+        card.appendChild(el('div', { class: 'signoff-body', text: msg.content || '' }));
+        return card;
+    }
+
+    function buildStatsCard(msg) {
+        let meta = {};
+        try { meta = JSON.parse(msg.scene_context || '{}'); } catch { meta = {}; }
+
+        const card = el('div', { class: 'stats-card' });
+        card.appendChild(el('div', { class: 'stats-header', text: '🎬 Marathon Summary' }));
+        const endedLabel = meta.ended_at ? formatTime(meta.ended_at) : '';
+        card.appendChild(el('div', { class: 'stats-subtitle', text: endedLabel ? 'Session ended · ' + endedLabel : 'Session ended' }));
+
+        const movies = meta.movies || [];
+        if (movies.length) {
+            const row = el('div', { class: 'stats-movies' });
+            for (const m of movies) {
+                const chip = el('div', { class: 'stats-movie-chip' });
+                chip.appendChild(el('span', { class: 'chip-emoji', text: '🎬' }));
+                const info = el('div', { class: 'chip-info' });
+                info.appendChild(el('span', { class: 'chip-title', text: m.title || 'Untitled' }));
+                const subBits = [];
+                if (m.comments != null) subBits.push(m.comments + ' comments');
+                if (m.dominant_mood) subBits.push('mood: ' + m.dominant_mood);
+                if (subBits.length) info.appendChild(el('span', { class: 'chip-count', text: subBits.join(' · ') }));
+                chip.appendChild(info);
+                row.appendChild(chip);
+            }
+            card.appendChild(row);
+        }
+
+        const grid = el('div', { class: 'stats-grid' });
+        const mkStat = (value, label) => {
+            const item = el('div', { class: 'stat-item' });
+            item.appendChild(el('div', { class: 'stat-value', text: String(value) }));
+            item.appendChild(el('div', { class: 'stat-label', text: label }));
+            return item;
+        };
+        const hours = Math.floor((meta.duration_minutes || 0) / 60);
+        const mins = (meta.duration_minutes || 0) % 60;
+        const runtime = hours > 0 ? `${hours}h ${String(mins).padStart(2, '0')}m` : `${mins}m`;
+        grid.appendChild(mkStat(movies.length || 0, 'Movies'));
+        grid.appendChild(mkStat(meta.tim_comments || 0, 'Comments'));
+        grid.appendChild(mkStat(runtime, 'Runtime'));
+        card.appendChild(grid);
+
+        if (meta.total_cost_usd != null) {
+            const cost = el('div', { class: 'stats-subtitle', style: { marginTop: '8px' } });
+            cost.textContent = 'Cost: ~$' + (Number(meta.total_cost_usd) || 0).toFixed(3);
+            card.appendChild(cost);
+        }
+
+        if (msg.content) {
+            const highlight = el('div', { class: 'stats-highlight', text: msg.content });
+            card.appendChild(highlight);
+        }
+
+        const hasJournal = meta.journal_written;
+        const tagJournal = el('span', { class: 'stats-tag journal', text: '✓ Journal entry saved' });
+        card.appendChild(tagJournal);
+        const tagEli = el('span', { class: 'stats-tag eli', text: '✓ Sign-off sent to Eli' });
+        card.appendChild(tagEli);
+
+        return card;
+    }
+
+    function buildCatchupCard(msg) {
+        let meta = {};
+        try { meta = JSON.parse(msg.scene_context || '{}'); } catch { meta = {}; }
+
+        const card = el('div', { class: 'catchup-card' });
+        card.appendChild(el('div', { class: 'catchup-header', text: '⏪ What Did I Miss?' }));
+        card.appendChild(el('div', { class: 'catchup-body', text: msg.content || '' }));
+        const spanParts = [];
+        if (meta.duration_label) spanParts.push('Away for ' + meta.duration_label);
+        if (meta.gap_start_label && meta.gap_end_label) {
+            spanParts.push('Covered ' + meta.gap_start_label + ' → ' + meta.gap_end_label);
+        }
+        if (spanParts.length) {
+            card.appendChild(el('span', { class: 'catchup-span', text: spanParts.join(' · ') }));
+        }
+        return card;
+    }
+
+    function buildBriefingCard(msg) {
+        let meta = {};
+        try { meta = JSON.parse(msg.scene_context || '{}'); } catch { meta = {}; }
+        const scores = meta.scores || {};
+
+        const card = el('div', { class: 'briefing-card' });
+        const header = el('div', { class: 'briefing-header' });
+        const poster = el('div', { class: 'briefing-poster' });
+        if (meta.rating_key && meta.thumb) {
+            const img = document.createElement('img');
+            img.src = '/api/plex/thumb?k=' + encodeURIComponent(meta.rating_key);
+            img.alt = meta.title || '';
+            img.style.width = '100%'; img.style.height = '100%'; img.style.objectFit = 'cover';
+            img.onerror = () => { poster.innerHTML = '<svg viewBox="0 0 50 74" style="width:100%;height:100%;"><rect width="50" height="74" fill="#1a1a28" rx="4"/><text x="25" y="42" text-anchor="middle" font-size="20">🎬</text></svg>'; };
+            poster.appendChild(img);
+        } else {
+            poster.innerHTML = '<svg viewBox="0 0 50 74" style="width:100%;height:100%;"><rect width="50" height="74" fill="#1a1a28" rx="4"/><text x="25" y="42" text-anchor="middle" font-size="20">🎬</text></svg>';
+        }
+        header.appendChild(poster);
+
+        const info = el('div');
+        info.appendChild(el('div', { class: 'briefing-title', text: meta.title || 'Unknown' }));
+        const subParts = [];
+        if (meta.year) subParts.push(String(meta.year));
+        if (meta.director) subParts.push(meta.director);
+        if (meta.runtime_minutes) {
+            const h = Math.floor(meta.runtime_minutes / 60), m = meta.runtime_minutes % 60;
+            subParts.push(h > 0 ? `${h}h ${m}m` : `${m}m`);
+        }
+        if (subParts.length) info.appendChild(el('div', { class: 'briefing-subtitle', text: subParts.join(' · ') }));
+
+        const scoresRow = el('div', { class: 'briefing-scores' });
+        if (scores.rt != null) scoresRow.appendChild(el('span', { class: 'briefing-score score-rt', text: '🍅 ' + scores.rt + '%' }));
+        if (scores.imdb != null) scoresRow.appendChild(el('span', { class: 'briefing-score score-imdb', text: '⭐ ' + (scores.imdb / 10).toFixed(1) }));
+        if (scores.meta != null) scoresRow.appendChild(el('span', { class: 'briefing-score score-meta', text: 'M ' + scores.meta }));
+        if (scoresRow.childNodes.length) info.appendChild(scoresRow);
+
+        header.appendChild(info);
+        card.appendChild(header);
+        card.appendChild(el('div', { class: 'briefing-body', text: msg.content || '' }));
+        card.appendChild(el('span', { class: 'briefing-tag', text: 'Briefing sent to Eli' }));
+        return card;
+    }
+
+    function isSettingOn(key) {
+        return String(state.settings[key] ?? 'true') === 'true';
+    }
+
+    let _typingSafetyTimer = null;
+    function setEliTyping(on) {
+        let indicator = $('eliTyping');
+        if (!indicator) {
+            indicator = buildTypingIndicator();
+            $('chatArea').appendChild(indicator);
+        }
+        indicator.classList.toggle('visible', !!on);
+        if (_typingSafetyTimer) {
+            clearTimeout(_typingSafetyTimer);
+            _typingSafetyTimer = null;
+        }
+        if (on) {
+            const chat = $('chatArea');
+            chat.scrollTop = chat.scrollHeight;
+            // Safety net: if no off-broadcast arrives within 5 minutes (well
+            // past the worst-case pipeline), force-clear so the UI doesn't
+            // get stuck forever after a server restart or dropped WS event.
+            _typingSafetyTimer = setTimeout(() => {
+                const el = $('eliTyping');
+                if (el) el.classList.remove('visible');
+                _typingSafetyTimer = null;
+            }, 5 * 60 * 1000);
+        }
+    }
+
+    function toggleContextBlock(id) {
+        const body = document.getElementById(id + '-body');
+        const arrow = document.getElementById(id + '-arrow');
+        if (body) body.classList.toggle('open');
+        if (arrow) arrow.classList.toggle('open');
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Snapshot / state application
+    // ═══════════════════════════════════════════════════════════
+    function applySnapshot(snap) {
+        state.session = snap.session;
+        state.messages = snap.messages || [];
+        state.movies = snap.movies || [];
+        state.lastSession = snap.last_session;
+        state.settings = snap.settings || {};
+        state.usage = snap.gemini_usage || 0;
+        state.budget = snap.gemini_budget || 1000;
+        state.plex = snap.plex || {};
+        state.plexUnreachable = !!snap.plex_unreachable;
+        state.sessionCost = snap.session_cost || { total_usd: 0, calls: 0, by_type: {} };
+        state.todayCostUsd = Number(snap.today_cost_usd || 0);
+        // Sync standby/away state from snapshot (server is the source of truth).
+        applyStandbyState(!!snap.standby);
+        applyAwayState(!!snap.away);
+        // Snapshot is authoritative — clear any stale typing indicator left
+        // over from a killed pipeline (e.g., uvicorn --reload mid-flight).
+        setEliTyping(false);
+
+        syncSettingsUI();
+        applySessionState();
+        renderAllMessages();
+        updateExchangeCounter();
+        updateLastSessionCard();
+        updateMovieBar();
+        updateInputAvailability();
+    }
+
+    function formatDurationMs(ms) {
+        if (!ms || ms < 0) return '—';
+        const total = Math.floor(ms / 1000);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        const pad = n => String(n).padStart(2, '0');
+        return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+    }
+
+    function updateInputAvailability() {
+        const hasMovie = !!(state.plex && state.plex.title);
+        const active = !!(state.session && state.session.status === 'active');
+        const enabled = hasMovie && active && !state.standby && !state.away;
+
+        const sendBtn = $('sendBtn');
+        if (sendBtn) sendBtn.disabled = !enabled;
+        document.querySelectorAll('.react-btn').forEach(btn => {
+            btn.disabled = !enabled;
+        });
+        const ta = $('messageInput');
+        if (ta) {
+            if (!active) ta.placeholder = 'Start a session to chat';
+            else if (!hasMovie) ta.placeholder = 'Start a movie on Plex to chat with Eli';
+            else if (state.standby) ta.placeholder = 'Standby mode';
+            else if (state.away) ta.placeholder = 'Away mode';
+            else ta.placeholder = 'Message Eli...';
+        }
+    }
+
+    function updateMovieBar() {
+        const bar = $('movieBar');
+        const titleEl = $('movieTitle');
+        const progressEl = $('movieProgress');
+        const posterEl = $('moviePoster');
+        const p = state.plex || {};
+
+        if (!p.title) {
+            bar.classList.add('empty');
+            titleEl.textContent = state.plexUnreachable ? 'Plex unreachable' : 'No movie detected';
+            progressEl.textContent = '—';
+            posterEl.innerHTML = '<svg viewBox="0 0 28 40" style="width:100%;height:100%;"><rect width="28" height="40" fill="#1a1a28"/><text x="14" y="24" text-anchor="middle" font-size="14">🎬</text></svg>';
+            return;
+        }
+
+        bar.classList.remove('empty');
+        const yearLabel = p.year ? ` (${p.year})` : '';
+        titleEl.textContent = `${p.title}${yearLabel}`;
+
+        const progress = formatDurationMs(p.view_offset_ms);
+        const total = formatDurationMs(p.duration_ms);
+        let sub = `${progress} / ${total}`;
+        if (p.director) sub += ` · Dir. ${p.director}`;
+        if (p.state && p.state !== 'playing') sub += ` · ${p.state}`;
+        progressEl.textContent = sub;
+
+        if (p.thumb) {
+            const img = new Image();
+            img.src = '/api/plex/thumb?k=' + encodeURIComponent(p.rating_key || '');
+            img.alt = p.title;
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.objectFit = 'cover';
+            img.onerror = () => {
+                posterEl.innerHTML = '<svg viewBox="0 0 28 40" style="width:100%;height:100%;"><rect width="28" height="40" fill="#1a1a28"/><text x="14" y="24" text-anchor="middle" font-size="14">🎬</text></svg>';
+            };
+            posterEl.innerHTML = '';
+            posterEl.appendChild(img);
+        }
+    }
+
+    function renderAllMessages() {
+        const chat = $('chatArea');
+        // Preserve the typing indicator across snapshot renders so toggling
+        // it later can still find the element.
+        const typing = $('eliTyping');
+        const typingVisible = typing && typing.classList.contains('visible');
+        chat.innerHTML = '';
+        state.renderedMessageIds = new Set();
+
+        if (!state.session && !state.messages.length) {
+            chat.appendChild(el('div', { class: 'chat-empty', id: 'chatEmpty', text: 'Waiting for a session. Tap ▶ Start to begin.' }));
+        } else {
+            for (const msg of state.messages) renderMessage(msg);
+        }
+        // Re-attach (or recreate) the typing indicator.
+        const rebuilt = typing || buildTypingIndicator();
+        if (typingVisible) rebuilt.classList.add('visible');
+        chat.appendChild(rebuilt);
+    }
+
+    function buildTypingIndicator() {
+        const wrap = el('div', { class: 'eli-typing', id: 'eliTyping' });
+        wrap.appendChild(el('span', { class: 'eli-typing-label', text: 'Eli' }));
+        const dots = el('span', { class: 'eli-typing-dots' });
+        dots.appendChild(el('span'));
+        dots.appendChild(el('span'));
+        dots.appendChild(el('span'));
+        wrap.appendChild(dots);
+        return wrap;
+    }
+
+    function applySessionState() {
+        const startScreen = $('startScreen');
+        const statusDot = $('statusDot');
+        const statusLabel = $('statusLabel');
+        const sessionBtn = $('sessionBtn');
+        setTimeout(updateInputAvailability, 0);
+
+        if (!state.session) {
+            startScreen.classList.remove('hidden');
+            statusDot.className = 'status-dot off';
+            statusLabel.className = 'status-label idle';
+            statusLabel.textContent = 'Idle';
+            setSessionBtn('start');
+        } else if (state.session.status === 'active') {
+            startScreen.classList.add('hidden');
+            statusDot.className = 'status-dot' + (state.standby ? ' standby' : '');
+            statusLabel.className = 'status-label ' + (state.standby ? 'standby' : 'live');
+            statusLabel.textContent = state.standby ? 'Standby' : 'Live';
+            setSessionBtn('stop');
+        } else if (state.session.status === 'ended') {
+            startScreen.classList.add('hidden');
+            statusDot.className = 'status-dot off';
+            statusLabel.className = 'status-label ended';
+            statusLabel.textContent = 'Ended';
+            setSessionBtn('clear');
+        }
+    }
+
+    function setSessionBtn(kind) {
+        const btn = $('sessionBtn');
+        btn.className = 'session-btn ' + kind;
+        if (kind === 'start') btn.innerHTML = '▶ Start';
+        else if (kind === 'stop') btn.innerHTML = '■ Stop';
+        else if (kind === 'clear') btn.innerHTML = '↺ Clear';
+        btn.dataset.kind = kind;
+    }
+
+    function formatUSD(amount) {
+        const n = Number(amount) || 0;
+        if (n < 0.01) return '~$' + n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '.0');
+        if (n < 1) return '~$' + n.toFixed(3);
+        return '~$' + n.toFixed(2);
+    }
+
+    function updateExchangeCounter() {
+        const counter = $('exchangeCounter');
+        const session = state.sessionCost || { total_usd: 0, calls: 0 };
+        const sessionCost = Number(session.total_usd || 0);
+        const calls = Number(session.calls || 0);
+        counter.textContent = `${calls} call${calls === 1 ? '' : 's'} · ${formatUSD(sessionCost)}`;
+        // Warning thresholds on per-session spend.
+        counter.classList.remove('warning', 'danger');
+        if (sessionCost > 2.0) counter.classList.add('danger');
+        else if (sessionCost > 1.0) counter.classList.add('warning');
+
+        // Tooltip: per-call-type breakdown + today's total.
+        const byType = (session.by_type || {});
+        const parts = [];
+        for (const [type, info] of Object.entries(byType)) {
+            parts.push(`${type}: ${info.calls} · ${formatUSD(info.cost_usd)}`);
+        }
+        const tip = parts.length
+            ? parts.join('\n') + `\nToday total: ${formatUSD(state.todayCostUsd)}`
+            : `Today total: ${formatUSD(state.todayCostUsd)}`;
+        counter.title = tip;
+    }
+
+    function updateLastSessionCard() {
+        const card = $('startLastSession');
+        if (!state.lastSession) { card.classList.add('hidden'); return; }
+        card.classList.remove('hidden');
+        $('startLastTitle').textContent = state.lastSession.title;
+        $('startLastDetail').textContent =
+            state.lastSession.date + ' · ' + state.lastSession.exchanges +
+            ' exchange' + (state.lastSession.exchanges === 1 ? '' : 's') + ' · ' + state.lastSession.runtime;
+    }
+
+    function syncSettingsUI() {
+        // Toggles
+        document.querySelectorAll('.toggle[data-setting]').forEach(t => {
+            const key = t.dataset.setting;
+            const on = String(state.settings[key] ?? 'true') === 'true';
+            t.classList.toggle('on', on);
+        });
+        // Selects
+        document.querySelectorAll('.setting-select[data-setting]').forEach(sel => {
+            const key = sel.dataset.setting;
+            if (state.settings[key] != null) sel.value = state.settings[key];
+        });
+        // Apply display effects
+        applyDisplaySettings();
+    }
+
+    function applyDisplaySettings() {
+        const emoteOn = isSettingOn('emotes_visible');
+        document.querySelectorAll('.emote-text').forEach(e => e.style.display = emoteOn ? '' : 'none');
+
+        const triviaOn = isSettingOn('trivia_visible');
+        document.querySelectorAll('.trivia-card').forEach(t => t.style.display = triviaOn ? '' : 'none');
+
+        const gradientOn = isSettingOn('mood_gradient');
+        $('moodGradient').style.display = gradientOn ? '' : 'none';
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Session actions
+    // ═══════════════════════════════════════════════════════════
+    async function refreshSnapshot() {
+        try {
+            const res = await fetch('/api/session');
+            if (res.ok) applySnapshot(await res.json());
+        } catch (e) {
+            console.error('snapshot refresh failed', e);
+        }
+    }
+
+    async function startSession() {
+        const btn = $('startBtn');
+        btn.disabled = true;
+        try {
+            await fetch('/api/session/start', { method: 'POST' });
+            // Force-refresh state — don't rely solely on the WS broadcast.
+            await refreshSnapshot();
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function handleSessionBtn() {
+        const btn = $('sessionBtn');
+        if (btn.disabled) return;
+        const kind = btn.dataset.kind;
+        btn.disabled = true;
+        try {
+            if (kind === 'start') {
+                await startSession();
+            } else if (kind === 'stop') {
+                await fetch('/api/session/stop', { method: 'POST' });
+                await refreshSnapshot();
+            } else if (kind === 'clear') {
+                state.session = null;
+                state.messages = [];
+                state.movies = [];
+                state.renderedMessageIds = new Set();
+                renderAllMessages();
+                applySessionState();
+                await refreshSnapshot();
+            }
+        } catch (e) {
+            console.error('session button action failed', e);
+        } finally {
+            setTimeout(() => { btn.disabled = false; }, 400);
+        }
+    }
+
+    async function sendMessage() {
+        const ta = $('messageInput');
+        const raw = ta.value.trim();
+        if (!raw) return;
+        if (!state.session || state.session.status !== 'active') return;
+        if (state.standby || state.away) return;
+        // Mobile shortcut: `*text*` → `_(*text*)_`
+        const text = expandEmoteShortcuts(raw);
+        ta.value = '';
+        ta.style.height = 'auto';
+        try {
+            await fetch('/api/message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: text }),
+            });
+        } catch (e) {
+            console.error('send failed', e);
+        }
+    }
+
+    async function sendReaction(emoji, label) {
+        if (!state.session || state.session.status !== 'active') return;
+        if (state.standby || state.away) return;
+        try {
+            await fetch('/api/reaction', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emoji, label }),
+            });
+        } catch (e) {
+            console.error('reaction failed', e);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Settings actions
+    // ═══════════════════════════════════════════════════════════
+    async function toggleSetting(el) {
+        const key = el.dataset.setting;
+        const nextOn = !el.classList.contains('on');
+        el.classList.toggle('on', nextOn);
+        state.settings[key] = nextOn ? 'true' : 'false';
+        applyDisplaySettings();
+        try {
+            await fetch('/api/settings/' + encodeURIComponent(key), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: nextOn ? 'true' : 'false' }),
+            });
+        } catch (e) { console.error('setting save failed', e); }
+    }
+
+    async function persistSelect(sel) {
+        const key = sel.dataset.setting;
+        state.settings[key] = sel.value;
+        try {
+            await fetch('/api/settings/' + encodeURIComponent(key), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: sel.value }),
+            });
+        } catch (e) { console.error('setting save failed', e); }
+    }
+
+    async function resetIngestion(who) {
+        // UI: flip active state to Sober in the button row.
+        const row = document.querySelector(`.ingestion-row[data-who="${who}"]`);
+        if (row) {
+            row.querySelectorAll('.ingestion-btn').forEach(b => b.classList.remove('active'));
+            const soberBtn = row.querySelector('.ingestion-btn[data-method="sober"]');
+            if (soberBtn) soberBtn.classList.add('active');
+        }
+        const statusEl = $(who + 'Status');
+        if (statusEl) statusEl.textContent = '☕ Sober';
+
+        try {
+            await fetch('/api/ingestion', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ who, method: 'sober' }),
+            });
+        } catch (e) { console.error('reset failed', e); }
+    }
+
+    async function logIngestion(btn, who, method) {
+        btn.parentElement.querySelectorAll('.ingestion-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const statusEl = $(who + 'Status');
+        const t = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        const c = {
+            smoke:  { i: '🌿🌿',   l: 'Lifted',  n: 'peak in ~15 min' },
+            edible: { i: '🌿',     l: 'Rising',  n: 'peak in ~60 min' },
+            dab:    { i: '🌿🌿🌿', l: 'Blasted', n: 'peak in ~5 min' },
+            sober:  { i: '☕',     l: 'Sober',   n: '' },
+        };
+        const v = c[method];
+        statusEl.textContent = method === 'sober' ? '☕ Sober' : `${v.i} ${v.l} · ${method} at ${t} · ${v.n}`;
+
+        try {
+            await fetch('/api/ingestion', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ who, method }),
+            });
+        } catch (e) { console.error('ingestion failed', e); }
+    }
+
+    async function updatePassword() {
+        const current = $('pwCurrent').value;
+        const newP = $('pwNew').value;
+        const confirm = $('pwConfirm').value;
+        const feedback = $('pwFeedback');
+        feedback.classList.remove('error');
+        feedback.textContent = '';
+        try {
+            const res = await fetch('/api/password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ current, new: newP, confirm }),
+            });
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                feedback.classList.add('error');
+                feedback.textContent = body.detail || 'Password update failed.';
+                return;
+            }
+            feedback.textContent = 'Password updated.';
+            $('pwCurrent').value = ''; $('pwNew').value = ''; $('pwConfirm').value = '';
+        } catch (e) {
+            feedback.classList.add('error');
+            feedback.textContent = 'Network error.';
+        }
+    }
+
+    function logout(e) {
+        e.preventDefault();
+        const form = document.createElement('form');
+        form.method = 'POST'; form.action = '/logout';
+        document.body.appendChild(form); form.submit();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Mood / standby / away
+    // ═══════════════════════════════════════════════════════════
+    function setMood(mood) {
+        if (!mood) return;
+        const gradient = $('moodGradient');
+        gradient.setAttribute('data-mood', mood);
+        const mm = $('masterMood');
+        mm.classList.remove('hidden');
+        const color = MOOD_COLORS[mood];
+        const textColor = MOOD_TEXT_COLORS[mood];
+        $('masterMoodDot').style.background = color;
+        $('masterMoodLabel').style.color = textColor;
+        $('masterMoodLabel').textContent = mood;
+        mm.style.background = color + '26';
+        mm.style.borderColor = color + '4D';
+    }
+
+    let standbyTapCount = 0, standbyTapTimer = null;
+    function handleStandbyTap() {
+        if (!state.session || state.session.status !== 'active') return;
+        standbyTapCount++;
+        if (standbyTapCount === 1) {
+            standbyTapTimer = setTimeout(() => { standbyTapCount = 0; }, 400);
+        } else if (standbyTapCount >= 2) {
+            clearTimeout(standbyTapTimer);
+            standbyTapCount = 0;
+            requestStandby(!state.standby);
+        }
+    }
+
+    async function requestStandby(desired) {
+        try {
+            await fetch('/api/standby', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ active: !!desired }),
+            });
+        } catch (e) { console.error('standby toggle failed', e); }
+        // The WS 'standby' broadcast will drive the actual UI flip.
+    }
+
+    function applyStandbyState(on) {
+        state.standby = !!on;
+        const dot = $('statusDot'), label = $('statusLabel'), gradient = $('moodGradient');
+        const chat = $('chatArea'), reactions = $('quickReactions'), input = $('inputArea');
+        const shield = $('standbyBtn'), mm = $('masterMood');
+        if (state.standby) {
+            dot.classList.add('standby');
+            label.className = 'status-label standby';
+            label.textContent = 'Standby';
+            gradient.classList.add('standby');
+            chat.classList.add('standby-dim');
+            reactions.classList.add('standby-dim');
+            input.classList.add('standby-dim');
+            shield.classList.add('standby-active');
+            mm.style.opacity = '0.3';
+        } else {
+            dot.classList.remove('standby');
+            label.className = 'status-label live';
+            label.textContent = 'Live';
+            gradient.classList.remove('standby');
+            chat.classList.remove('standby-dim');
+            reactions.classList.remove('standby-dim');
+            input.classList.remove('standby-dim');
+            shield.classList.remove('standby-active');
+            mm.style.opacity = '1';
+        }
+        updateInputAvailability();
+    }
+
+    // Deprecated alias — left in case existing code references it.
+    function toggleStandby() { requestStandby(!state.standby); }
+
+    function applyAwayState(on) {
+        state.away = !!on;
+        const btn = $('awayBtn');
+        btn.classList.toggle('active', state.away);
+        if (state.away) {
+            if (!state.awayStart) state.awayStart = Date.now();
+            btn.innerHTML = '▶<span class="tip">Back (auto catch-up)</span><span class="away-timer" id="awayTimer">0:00</span>';
+            if (!state.awayInterval) {
+                state.awayInterval = setInterval(() => {
+                    const s = Math.floor((Date.now() - state.awayStart) / 1000);
+                    const timer = $('awayTimer');
+                    if (timer) timer.textContent = Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60);
+                }, 1000);
+            }
+        } else {
+            clearInterval(state.awayInterval);
+            state.awayInterval = null;
+            state.awayStart = null;
+            btn.innerHTML = '⏸<span class="tip">Away · auto catch-up on return</span><span class="away-timer" id="awayTimer">0:00</span>';
+        }
+        updateInputAvailability();
+    }
+
+    function renderSystemEphemeral(text, extraClass = '') {
+        const chat = $('chatArea');
+        chat.appendChild(el('div', { class: 'msg system ' + extraClass, text }));
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+    async function toggleAway() {
+        // Server is the source of truth — post the desired state and let
+        // the WS 'away' broadcast drive the UI update.
+        const desired = !state.away;
+        try {
+            await fetch('/api/away', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ active: desired }),
+            });
+        } catch (e) { console.error('away toggle failed', e); }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Settings panel toggle
+    // ═══════════════════════════════════════════════════════════
+    function toggleSettings() {
+        $('settingsOverlay').classList.toggle('open');
+        $('settingsPanel').classList.toggle('open');
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  WebSocket
+    // ═══════════════════════════════════════════════════════════
+    function connectWS() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(proto + '//' + location.host + '/ws');
+        state.ws = ws;
+
+        ws.addEventListener('open', () => {
+            state.wsBackoff = 1000;
+            $('connBanner').classList.remove('visible');
+        });
+
+        ws.addEventListener('message', (evt) => {
+            let msg;
+            try { msg = JSON.parse(evt.data); } catch { return; }
+            handleWSMessage(msg);
+        });
+
+        ws.addEventListener('close', () => {
+            $('connBanner').classList.add('visible');
+            const delay = Math.min(state.wsBackoff, 30000);
+            state.wsBackoff = Math.min(state.wsBackoff * 2, 30000);
+            setTimeout(connectWS, delay);
+        });
+
+        ws.addEventListener('error', () => { try { ws.close(); } catch {} });
+    }
+
+    function handleWSMessage(msg) {
+        switch (msg.type) {
+            case 'snapshot':
+                applySnapshot(msg);
+                break;
+            case 'message':
+                if (msg.message) {
+                    state.messages.push(msg.message);
+                    renderMessage(msg.message);
+                    if (msg.message.sender === 'eli') setEliTyping(false);
+                }
+                break;
+            case 'eli_typing':
+                setEliTyping(!!msg.on);
+                break;
+            case 'message_updated':
+                if (msg.message) {
+                    const idx = state.messages.findIndex(m => m.id === msg.message.id);
+                    if (idx >= 0) state.messages[idx] = msg.message;
+                    rerenderMessage(msg.message);
+                    if (msg.message.mood) setMood(msg.message.mood);
+                }
+                break;
+            case 'mood':
+                setMood(msg.mood);
+                break;
+            case 'setting_updated':
+                state.settings[msg.key] = msg.value;
+                syncSettingsUI();
+                break;
+            case 'ingestion':
+                // Already reflected locally on click; ignore unless different origin
+                break;
+            case 'usage':
+                state.usage = msg.value;
+                updateExchangeCounter();
+                break;
+            case 'cost':
+                if (msg.session) state.sessionCost = msg.session;
+                if (msg.today_usd != null) state.todayCostUsd = Number(msg.today_usd);
+                updateExchangeCounter();
+                break;
+            case 'plex':
+                handlePlexEvent(msg.event, msg.data || {});
+                break;
+            case 'standby':
+                applyStandbyState(!!msg.active);
+                break;
+            case 'away':
+                applyAwayState(!!msg.active);
+                break;
+            case 'pong':
+                break;
+        }
+    }
+
+    function handlePlexEvent(event, data) {
+        if (event === 'stop') {
+            state.plex = {};
+            updateMovieBar();
+            updateInputAvailability();
+            return;
+        }
+        if (event === 'unreachable') {
+            state.plexUnreachable = true;
+            if (!state.plex || !state.plex.title) updateMovieBar();
+            updateInputAvailability();
+            return;
+        }
+        if (event === 'reachable') {
+            state.plexUnreachable = false;
+            updateMovieBar();
+            updateInputAvailability();
+            return;
+        }
+        // play / pause / progress / media_change all carry full state payload
+        state.plex = data || {};
+        state.plexUnreachable = false;
+        updateMovieBar();
+        updateInputAvailability();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Input / textarea
+    // ═══════════════════════════════════════════════════════════
+    function wireInput() {
+        const ta = $('messageInput');
+        const counter = $('charCounter');
+        const updateCounter = () => {
+            const len = ta.value.length;
+            if (len === 0) {
+                counter.classList.add('hidden');
+                return;
+            }
+            counter.classList.remove('hidden', 'warning', 'danger');
+            counter.textContent = len + '/1000';
+            if (len >= 1000) counter.classList.add('danger');
+            else if (len >= 900) counter.classList.add('warning');
+        };
+        // Enter = newline. Sending is explicit via the Send button.
+        ta.addEventListener('input', () => {
+            ta.style.height = 'auto';
+            ta.style.height = Math.min(ta.scrollHeight, 100) + 'px';
+            updateCounter();
+        });
+        updateCounter();
+    }
+
+    function wireReactions() {
+        document.querySelectorAll('.react-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const emoji = btn.dataset.emoji;
+                const label = btn.dataset.label;
+                sendReaction(emoji, label);
+            });
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Init
+    // ═══════════════════════════════════════════════════════════
+    document.addEventListener('DOMContentLoaded', async () => {
+        wireInput();
+        wireReactions();
+        try {
+            const res = await fetch('/api/session');
+            if (res.ok) applySnapshot(await res.json());
+        } catch (e) { console.error(e); }
+        connectWS();
+    });
+</script>
+</body>
+</html>
