@@ -244,6 +244,52 @@
         .react-btn:active { transform: scale(0.95); background: var(--accent); color: #fff; }
         .react-btn .r-emoji { font-size: 1.35rem; line-height: 1; }
         .react-btn .r-label { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.02em; }
+        .react-btn.react-more.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+        /* ─── Expanded emoji pane ─── */
+        .emoji-pane {
+            display: none;
+            position: fixed;
+            bottom: 120px;
+            left: 14px;
+            right: 14px;
+            max-width: 492px;
+            margin: 0 auto;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 10px;
+            max-height: 280px;
+            overflow-y: auto;
+            z-index: 60;
+            box-shadow: 0 -8px 24px rgba(0,0,0,0.5);
+        }
+        .emoji-pane.open { display: block; animation: emoji-pane-in 0.18s ease-out; }
+        @keyframes emoji-pane-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .emoji-pane::-webkit-scrollbar { width: 4px; }
+        .emoji-pane::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        .emoji-pane-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+        @media (max-width: 480px) { .emoji-pane-grid { grid-template-columns: repeat(4, 1fr); } }
+        .emoji-pane-btn {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.12s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            padding: 8px 4px;
+            color: var(--text-secondary);
+        }
+        .emoji-pane-btn:hover { border-color: var(--accent); transform: scale(1.04); color: var(--text-primary); }
+        .emoji-pane-btn:active { transform: scale(0.95); background: var(--accent); color: #fff; }
+        .emoji-pane-btn .ep-emoji { font-size: 1.5rem; line-height: 1; }
+        .emoji-pane-btn .ep-label { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.02em; text-align: center; line-height: 1.1; }
+        .emoji-pane-overlay { display: none; position: fixed; inset: 0; z-index: 55; }
+        .emoji-pane-overlay.open { display: block; }
 
         /* ─── Input ─── */
         .input-area { background: var(--bg-surface); border-top: 1px solid var(--border); padding: 10px 14px; display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0; z-index: 1; }
@@ -370,6 +416,10 @@
 </div>
 
 <!-- ═══ Reactions ═══ -->
+<div class="emoji-pane-overlay" id="emojiPaneOverlay" onclick="closeEmojiPane()"></div>
+<div class="emoji-pane" id="emojiPane">
+    <div class="emoji-pane-grid" id="emojiPaneGrid"></div>
+</div>
 <div class="quick-reactions" id="quickReactions">
     <button class="react-btn" data-emoji="😱" data-label="Scared"><span class="r-emoji">😱</span><span class="r-label">Scared</span></button>
     <button class="react-btn" data-emoji="😂" data-label="Laughing"><span class="r-emoji">😂</span><span class="r-label">Laughing</span></button>
@@ -378,7 +428,7 @@
     <button class="react-btn" data-emoji="💀" data-label="Wrecked"><span class="r-emoji">💀</span><span class="r-label">Wrecked</span></button>
     <button class="react-btn" data-emoji="👀" data-label="Caught it"><span class="r-emoji">👀</span><span class="r-label">Caught it</span></button>
     <button class="react-btn" data-emoji="🔥" data-label="Fire"><span class="r-emoji">🔥</span><span class="r-label">Fire</span></button>
-    <button class="react-btn" data-emoji="😮‍💨" data-label="Exhale"><span class="r-emoji">😮‍💨</span><span class="r-label">Exhale</span></button>
+    <button class="react-btn react-more" id="reactMoreBtn" type="button" onclick="toggleEmojiPane()"><span class="r-emoji">⋯</span><span class="r-label">More</span></button>
 </div>
 
 <!-- ═══ Input ═══ -->
@@ -1665,13 +1715,81 @@
         updateCounter();
     }
 
+    // Curated 24-emoji set for the "More" pane. Includes the 7 in the main
+    // row plus 17 extras covering the most useful movie-watching reactions.
+    const EXTRA_EMOJIS = [
+        ['😱', 'Scared'], ['😂', 'Laughing'], ['🤯', 'Mind blown'], ['❤️', 'Moved'],
+        ['💀', 'Wrecked'], ['👀', 'Caught it'], ['🔥', 'Fire'], ['😮‍💨', 'Exhale'],
+        ['😭', 'Sobbing'], ['🥹', 'Holding back'], ['🥺', 'Aww'], ['😬', 'Yikes'],
+        ['🤔', 'Thinking'], ['😈', 'Devious'], ['🤡', 'Clown'], ['😎', 'Cool'],
+        ['🤩', 'Starstruck'], ['💯', 'Nailed it'], ['👏', 'Applause'], ['🤌', 'Chef\'s kiss'],
+        ['🍿', 'Popcorn'], ['🎬', 'Cinema'], ['🥱', 'Bored'], ['🙄', 'Eye-roll'],
+    ];
+
+    function buildEmojiPane() {
+        const grid = $('emojiPaneGrid');
+        if (!grid || grid.childNodes.length) return;
+        for (const [emoji, label] of EXTRA_EMOJIS) {
+            const btn = document.createElement('button');
+            btn.className = 'emoji-pane-btn';
+            btn.type = 'button';
+            btn.title = label;
+            btn.dataset.emoji = emoji;
+            btn.dataset.label = label;
+            const eSpan = document.createElement('span');
+            eSpan.className = 'ep-emoji';
+            eSpan.textContent = emoji;
+            const lSpan = document.createElement('span');
+            lSpan.className = 'ep-label';
+            lSpan.textContent = label;
+            btn.appendChild(eSpan);
+            btn.appendChild(lSpan);
+            btn.addEventListener('click', () => {
+                sendReaction(emoji, label);
+                closeEmojiPane();
+            });
+            grid.appendChild(btn);
+        }
+    }
+
+    function toggleEmojiPane() {
+        const pane = $('emojiPane');
+        const overlay = $('emojiPaneOverlay');
+        const moreBtn = $('reactMoreBtn');
+        if (!pane) return;
+        const isOpen = pane.classList.contains('open');
+        if (isOpen) {
+            closeEmojiPane();
+        } else {
+            buildEmojiPane();
+            pane.classList.add('open');
+            overlay && overlay.classList.add('open');
+            moreBtn && moreBtn.classList.add('active');
+        }
+    }
+
+    function closeEmojiPane() {
+        const pane = $('emojiPane');
+        const overlay = $('emojiPaneOverlay');
+        const moreBtn = $('reactMoreBtn');
+        pane && pane.classList.remove('open');
+        overlay && overlay.classList.remove('open');
+        moreBtn && moreBtn.classList.remove('active');
+    }
+
     function wireReactions() {
         document.querySelectorAll('.react-btn').forEach(btn => {
+            // Skip the "More" toggle — its onclick is wired inline.
+            if (btn.classList.contains('react-more')) return;
             btn.addEventListener('click', () => {
                 const emoji = btn.dataset.emoji;
                 const label = btn.dataset.label;
                 sendReaction(emoji, label);
             });
+        });
+        // ESC closes the emoji pane.
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeEmojiPane();
         });
     }
 
