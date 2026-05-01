@@ -97,6 +97,20 @@ async def build_session_stats(session_id: str) -> dict[str, Any]:
 
     cost = await db.get_session_cost(session_id)
 
+    # Pull real ingestion events for the session so the sign-off / summary
+    # prompts can ground "Tim was stoned" claims in what actually happened.
+    # Filter out 'sober' rows — those are reset events, not actual ingestion.
+    ingestion_rows = await db.fetch_all(
+        "SELECT who, method, logged_at FROM ingestion_events "
+        "WHERE session_id = ? AND method != 'sober' "
+        "ORDER BY logged_at ASC",
+        (session_id,),
+    )
+    ingestion_events = [
+        {"who": r["who"], "method": r["method"], "logged_at": r["logged_at"]}
+        for r in ingestion_rows
+    ]
+
     return {
         "session_id": session_id,
         "started_at": started,
@@ -107,6 +121,7 @@ async def build_session_stats(session_id: str) -> dict[str, Any]:
         "reactions": reaction_count,
         "total_cost_usd": cost.get("total_usd", 0.0),
         "cost_by_type": cost.get("by_type", {}),
+        "ingestion_events": ingestion_events,
     }
 
 
@@ -141,6 +156,21 @@ def format_stats_hint(stats: dict[str, Any]) -> str:
         lines.append("  Movies:")
         for m in movie_lines:
             lines.append(f"    - {m}")
+
+    # Ingestion ground truth — without this Gemini hallucinates stoned
+    # references from prompt examples. Be explicit about SOBER so the
+    # model knows not to invent any.
+    ingestion = stats.get("ingestion_events") or []
+    if ingestion:
+        lines.append("  Ingestion events during session:")
+        for e in ingestion:
+            who = e.get("who") or "?"
+            method = e.get("method") or "?"
+            when = e.get("logged_at") or ""
+            lines.append(f"    - {who} {method} at {when}")
+    else:
+        lines.append("  Ingestion: SOBER throughout the session (Tim and Eli)")
+
     return "\n".join(lines)
 
 
