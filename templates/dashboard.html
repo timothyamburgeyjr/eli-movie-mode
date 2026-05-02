@@ -259,7 +259,7 @@
             border: 1px solid var(--border);
             border-radius: 14px;
             padding: 10px;
-            max-height: 280px;
+            max-height: 60vh;
             overflow-y: auto;
             z-index: 60;
             box-shadow: 0 -8px 24px rgba(0,0,0,0.5);
@@ -268,8 +268,17 @@
         @keyframes emoji-pane-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         .emoji-pane::-webkit-scrollbar { width: 4px; }
         .emoji-pane::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-        .emoji-pane-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
-        @media (max-width: 480px) { .emoji-pane-grid { grid-template-columns: repeat(4, 1fr); } }
+        .emoji-pane-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+        .emoji-pane-section { margin-bottom: 12px; }
+        .emoji-pane-section:last-child { margin-bottom: 0; }
+        .emoji-pane-header {
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            padding: 4px 4px 6px;
+            text-transform: uppercase;
+        }
         .emoji-pane-btn {
             background: var(--bg-elevated);
             border: 1px solid var(--border);
@@ -417,9 +426,7 @@
 
 <!-- ═══ Reactions ═══ -->
 <div class="emoji-pane-overlay" id="emojiPaneOverlay" onclick="closeEmojiPane()"></div>
-<div class="emoji-pane" id="emojiPane">
-    <div class="emoji-pane-grid" id="emojiPaneGrid"></div>
-</div>
+<div class="emoji-pane" id="emojiPane"></div>
 <div class="quick-reactions" id="quickReactions">
     <button class="react-btn" data-emoji="😂" data-label="Cracking up"><span class="r-emoji">😂</span><span class="r-label">Cracking up</span></button>
     <button class="react-btn" data-emoji="😱" data-label="Jump-scared"><span class="r-emoji">😱</span><span class="r-label">Jump-scared</span></button>
@@ -1721,48 +1728,75 @@
         updateCounter();
     }
 
-    // Curated 24-emoji set for the "More" pane. Each label is 2-3 words
-    // describing exactly when to use it — no overlap between any two
-    // buttons. Each answers a different "what am I reacting to" question.
-    // Rows of 4 on phones; CSS wraps long labels gracefully.
-    const EXTRA_EMOJIS = [
-        // Row 1 — main-row mirrors so user finds them either place
-        ['😂', 'Cracking up'], ['😱', 'Jump-scared'], ['😭', 'Tear-jerker'], ['🤯', 'Plot twist hit'],
-        // Row 2 — main-row mirrors cont. + suspense
-        ['🔥', 'So damn cool'], ['🥵', 'Steamy moment'], ['😬', 'Painfully awkward'], ['😨', 'Suspense building'],
-        // Row 3 — narrative/character observations
-        ['👀', 'Hiding something'], ['🤔', 'What\'s going on'], ['😈', 'Plotting evil'], ['🙄', 'Bad call'],
-        // Row 4 — craft (each a different angle)
-        ['🤌', 'Beautiful shot'], ['💯', 'Perfect beat'], ['🎬', 'Cinematic feel'], ['🤩', 'Visual epic'],
-        // Row 5 — emotional shades (each distinct)
-        ['❤️', 'Heart full'], ['💔', 'Gut punch'], ['🥹', 'Bittersweet'], ['🤓', 'Caught reference'],
-        // Row 6 — engagement + atmosphere
-        ['🥱', 'Losing interest'], ['🤢', 'Stomach turn'], ['🥶', 'Dark vibes'], ['🍿', 'Just enjoying'],
+    // 24 reactions organized into 6 categories of 4 — each category is a
+    // top-level grouping so stoned-Tim can skim by section instead of
+    // reading every individual label. Categories are non-overlapping
+    // domains; within each, the four picks answer slightly different
+    // sub-questions.
+    const EMOJI_CATEGORIES = [
+        { label: 'Gut reactions', emojis: [
+            ['😂', 'Cracking up'], ['😱', 'Jump-scared'],
+            ['😭', 'Tear-jerker'], ['🤯', 'Plot twist hit'],
+        ]},
+        { label: 'Intensity', emojis: [
+            ['🔥', 'So damn cool'], ['🥵', 'Steamy moment'],
+            ['😬', 'Painfully awkward'], ['😨', 'Suspense building'],
+        ]},
+        { label: 'Story reads', emojis: [
+            ['👀', 'Hiding something'], ['🤔', "What's going on"],
+            ['😈', 'Plotting evil'], ['🙄', 'Bad call'],
+        ]},
+        { label: 'Craft', emojis: [
+            ['🤌', 'Beautiful shot'], ['💯', 'Perfect beat'],
+            ['🎬', 'Cinematic feel'], ['🤩', 'Visual epic'],
+        ]},
+        { label: 'Emotional depth', emojis: [
+            ['❤️', 'Heart full'], ['💔', 'Gut punch'],
+            ['🥹', 'Bittersweet'], ['🤓', 'Caught reference'],
+        ]},
+        { label: 'Vibe check', emojis: [
+            ['🥱', 'Losing interest'], ['🤢', 'Stomach turn'],
+            ['🥶', 'Dark vibes'], ['🍿', 'Just enjoying'],
+        ]},
     ];
 
     function buildEmojiPane() {
-        const grid = $('emojiPaneGrid');
-        if (!grid || grid.childNodes.length) return;
-        for (const [emoji, label] of EXTRA_EMOJIS) {
-            const btn = document.createElement('button');
-            btn.className = 'emoji-pane-btn';
-            btn.type = 'button';
-            btn.title = label;
-            btn.dataset.emoji = emoji;
-            btn.dataset.label = label;
-            const eSpan = document.createElement('span');
-            eSpan.className = 'ep-emoji';
-            eSpan.textContent = emoji;
-            const lSpan = document.createElement('span');
-            lSpan.className = 'ep-label';
-            lSpan.textContent = label;
-            btn.appendChild(eSpan);
-            btn.appendChild(lSpan);
-            btn.addEventListener('click', () => {
-                sendReaction(emoji, label);
-                closeEmojiPane();
-            });
-            grid.appendChild(btn);
+        const pane = $('emojiPane');
+        if (!pane || pane.childNodes.length) return;
+        for (const cat of EMOJI_CATEGORIES) {
+            const section = document.createElement('div');
+            section.className = 'emoji-pane-section';
+
+            const header = document.createElement('div');
+            header.className = 'emoji-pane-header';
+            header.textContent = cat.label;
+            section.appendChild(header);
+
+            const grid = document.createElement('div');
+            grid.className = 'emoji-pane-grid';
+            for (const [emoji, label] of cat.emojis) {
+                const btn = document.createElement('button');
+                btn.className = 'emoji-pane-btn';
+                btn.type = 'button';
+                btn.title = label;
+                btn.dataset.emoji = emoji;
+                btn.dataset.label = label;
+                const eSpan = document.createElement('span');
+                eSpan.className = 'ep-emoji';
+                eSpan.textContent = emoji;
+                const lSpan = document.createElement('span');
+                lSpan.className = 'ep-label';
+                lSpan.textContent = label;
+                btn.appendChild(eSpan);
+                btn.appendChild(lSpan);
+                btn.addEventListener('click', () => {
+                    sendReaction(emoji, label);
+                    closeEmojiPane();
+                });
+                grid.appendChild(btn);
+            }
+            section.appendChild(grid);
+            pane.appendChild(section);
         }
     }
 
