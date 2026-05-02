@@ -421,13 +421,13 @@
     <div class="emoji-pane-grid" id="emojiPaneGrid"></div>
 </div>
 <div class="quick-reactions" id="quickReactions">
-    <button class="react-btn" data-emoji="😂" data-label="LOL"><span class="r-emoji">😂</span><span class="r-label">LOL</span></button>
-    <button class="react-btn" data-emoji="😱" data-label="Scared"><span class="r-emoji">😱</span><span class="r-label">Scared</span></button>
-    <button class="react-btn" data-emoji="😭" data-label="Crying"><span class="r-emoji">😭</span><span class="r-label">Crying</span></button>
-    <button class="react-btn" data-emoji="🤯" data-label="Mind blown"><span class="r-emoji">🤯</span><span class="r-label">Mind blown</span></button>
-    <button class="react-btn" data-emoji="🔥" data-label="So good"><span class="r-emoji">🔥</span><span class="r-label">So good</span></button>
-    <button class="react-btn" data-emoji="🥵" data-label="Hot"><span class="r-emoji">🥵</span><span class="r-label">Hot</span></button>
-    <button class="react-btn" data-emoji="😬" data-label="Cringe"><span class="r-emoji">😬</span><span class="r-label">Cringe</span></button>
+    <button class="react-btn" data-emoji="😂" data-label="Cracking up"><span class="r-emoji">😂</span><span class="r-label">Cracking up</span></button>
+    <button class="react-btn" data-emoji="😱" data-label="Jump-scared"><span class="r-emoji">😱</span><span class="r-label">Jump-scared</span></button>
+    <button class="react-btn" data-emoji="😭" data-label="Tear-jerker"><span class="r-emoji">😭</span><span class="r-label">Tear-jerker</span></button>
+    <button class="react-btn" data-emoji="🤯" data-label="Plot twist hit"><span class="r-emoji">🤯</span><span class="r-label">Plot twist hit</span></button>
+    <button class="react-btn" data-emoji="🔥" data-label="So damn cool"><span class="r-emoji">🔥</span><span class="r-label">So damn cool</span></button>
+    <button class="react-btn" data-emoji="🥵" data-label="Steamy moment"><span class="r-emoji">🥵</span><span class="r-label">Steamy moment</span></button>
+    <button class="react-btn" data-emoji="😬" data-label="Painfully awkward"><span class="r-emoji">😬</span><span class="r-label">Painfully awkward</span></button>
     <button class="react-btn react-more" id="reactMoreBtn" type="button" onclick="toggleEmojiPane()"><span class="r-emoji">⋯</span><span class="r-label">More</span></button>
 </div>
 
@@ -1721,22 +1721,23 @@
         updateCounter();
     }
 
-    // Curated 24-emoji set for the "More" pane. Each label is short and
-    // action-oriented — one purpose per button, no slang ambiguity.
-    // Rows of 4 on phones (4-col grid) so the layout reads cleanly.
+    // Curated 24-emoji set for the "More" pane. Each label is 2-3 words
+    // describing exactly when to use it — no overlap between any two
+    // buttons. Each answers a different "what am I reacting to" question.
+    // Rows of 4 on phones; CSS wraps long labels gracefully.
     const EXTRA_EMOJIS = [
-        // Row 1 — main-row mirrors (so user can find them either place)
-        ['😂', 'LOL'], ['😱', 'Scared'], ['😭', 'Crying'], ['🤯', 'Mind blown'],
-        // Row 2 — main-row mirrors continued + Heart full
-        ['🔥', 'So good'], ['🥵', 'Hot'], ['😬', 'Cringe'], ['❤️', 'Heart full'],
-        // Row 3 — soft emotional nuances
-        ['🥹', 'Choked up'], ['💔', 'Heartbroken'], ['🥺', 'So sweet'], ['🤔', 'Hmm'],
-        // Row 4 — observational / mind
-        ['👀', 'Sus'], ['😈', 'Evil grin'], ['🤩', 'Wowed'], ['💯', 'Perfect'],
-        // Row 5 — praise / approval
-        ['👏', 'Bravo'], ['🤌', 'Chef\'s kiss'], ['😎', 'Cool'], ['🙄', 'Cliché'],
-        // Row 6 — negative + film-specific
-        ['🥱', 'Boring'], ['🫨', 'Shaking'], ['🎬', 'Cinematic'], ['🍿', 'Popcorn'],
+        // Row 1 — main-row mirrors so user finds them either place
+        ['😂', 'Cracking up'], ['😱', 'Jump-scared'], ['😭', 'Tear-jerker'], ['🤯', 'Plot twist hit'],
+        // Row 2 — main-row mirrors cont. + suspense
+        ['🔥', 'So damn cool'], ['🥵', 'Steamy moment'], ['😬', 'Painfully awkward'], ['😨', 'Suspense building'],
+        // Row 3 — narrative/character observations
+        ['👀', 'Hiding something'], ['🤔', 'What\'s going on'], ['😈', 'Plotting evil'], ['🙄', 'Bad call'],
+        // Row 4 — craft (each a different angle)
+        ['🤌', 'Beautiful shot'], ['💯', 'Perfect beat'], ['🎬', 'Cinematic feel'], ['🤩', 'Visual epic'],
+        // Row 5 — emotional shades (each distinct)
+        ['❤️', 'Heart full'], ['💔', 'Gut punch'], ['🥹', 'Bittersweet'], ['🤓', 'Caught reference'],
+        // Row 6 — engagement + atmosphere
+        ['🥱', 'Losing interest'], ['🤢', 'Stomach turn'], ['🥶', 'Dark vibes'], ['🍿', 'Just enjoying'],
     ];
 
     function buildEmojiPane() {
