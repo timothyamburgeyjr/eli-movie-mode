@@ -421,13 +421,13 @@
     <div class="emoji-pane-grid" id="emojiPaneGrid"></div>
 </div>
 <div class="quick-reactions" id="quickReactions">
+    <button class="react-btn" data-emoji="😂" data-label="LOL"><span class="r-emoji">😂</span><span class="r-label">LOL</span></button>
     <button class="react-btn" data-emoji="😱" data-label="Scared"><span class="r-emoji">😱</span><span class="r-label">Scared</span></button>
-    <button class="react-btn" data-emoji="😂" data-label="Laughing"><span class="r-emoji">😂</span><span class="r-label">Laughing</span></button>
+    <button class="react-btn" data-emoji="😭" data-label="Crying"><span class="r-emoji">😭</span><span class="r-label">Crying</span></button>
     <button class="react-btn" data-emoji="🤯" data-label="Mind blown"><span class="r-emoji">🤯</span><span class="r-label">Mind blown</span></button>
-    <button class="react-btn" data-emoji="❤️" data-label="Moved"><span class="r-emoji">❤️</span><span class="r-label">Moved</span></button>
-    <button class="react-btn" data-emoji="💀" data-label="Wrecked"><span class="r-emoji">💀</span><span class="r-label">Wrecked</span></button>
-    <button class="react-btn" data-emoji="👀" data-label="Caught it"><span class="r-emoji">👀</span><span class="r-label">Caught it</span></button>
-    <button class="react-btn" data-emoji="🔥" data-label="Fire"><span class="r-emoji">🔥</span><span class="r-label">Fire</span></button>
+    <button class="react-btn" data-emoji="🔥" data-label="So good"><span class="r-emoji">🔥</span><span class="r-label">So good</span></button>
+    <button class="react-btn" data-emoji="🥵" data-label="Hot"><span class="r-emoji">🥵</span><span class="r-label">Hot</span></button>
+    <button class="react-btn" data-emoji="😬" data-label="Cringe"><span class="r-emoji">😬</span><span class="r-label">Cringe</span></button>
     <button class="react-btn react-more" id="reactMoreBtn" type="button" onclick="toggleEmojiPane()"><span class="r-emoji">⋯</span><span class="r-label">More</span></button>
 </div>
 
@@ -1715,15 +1715,22 @@
         updateCounter();
     }
 
-    // Curated 24-emoji set for the "More" pane. Includes the 7 in the main
-    // row plus 17 extras covering the most useful movie-watching reactions.
+    // Curated 24-emoji set for the "More" pane. Each label is short and
+    // action-oriented — one purpose per button, no slang ambiguity.
+    // Rows of 4 on phones (4-col grid) so the layout reads cleanly.
     const EXTRA_EMOJIS = [
-        ['😱', 'Scared'], ['😂', 'Laughing'], ['🤯', 'Mind blown'], ['❤️', 'Moved'],
-        ['💀', 'Wrecked'], ['👀', 'Caught it'], ['🔥', 'Fire'], ['😮‍💨', 'Exhale'],
-        ['😭', 'Sobbing'], ['🥹', 'Holding back'], ['🥺', 'Aww'], ['😬', 'Yikes'],
-        ['🤔', 'Thinking'], ['😈', 'Devious'], ['🤡', 'Clown'], ['😎', 'Cool'],
-        ['🤩', 'Starstruck'], ['💯', 'Nailed it'], ['👏', 'Applause'], ['🤌', 'Chef\'s kiss'],
-        ['🍿', 'Popcorn'], ['🎬', 'Cinema'], ['🥱', 'Bored'], ['🙄', 'Eye-roll'],
+        // Row 1 — main-row mirrors (so user can find them either place)
+        ['😂', 'LOL'], ['😱', 'Scared'], ['😭', 'Crying'], ['🤯', 'Mind blown'],
+        // Row 2 — main-row mirrors continued + Heart full
+        ['🔥', 'So good'], ['🥵', 'Hot'], ['😬', 'Cringe'], ['❤️', 'Heart full'],
+        // Row 3 — soft emotional nuances
+        ['🥹', 'Choked up'], ['💔', 'Heartbroken'], ['🥺', 'So sweet'], ['🤔', 'Hmm'],
+        // Row 4 — observational / mind
+        ['👀', 'Sus'], ['😈', 'Evil grin'], ['🤩', 'Wowed'], ['💯', 'Perfect'],
+        // Row 5 — praise / approval
+        ['👏', 'Bravo'], ['🤌', 'Chef\'s kiss'], ['😎', 'Cool'], ['🙄', 'Cliché'],
+        // Row 6 — negative + film-specific
+        ['🥱', 'Boring'], ['🫨', 'Shaking'], ['🎬', 'Cinematic'], ['🍿', 'Popcorn'],
     ];
 
     function buildEmojiPane() {
