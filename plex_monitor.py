@@ -208,11 +208,47 @@ def _parse_meta(m: dict) -> dict:
             part_key = parts[0].get("key")
     directors = [d.get("tag") for d in (m.get("Director") or []) if d.get("tag")]
     state = (player.get("state") or "playing").lower()
+    media_type = m.get("type")
+    title = m.get("title") or ""
+    year = m.get("year")
+
+    # TV episode fields — Plex puts the show on grandparentTitle, the season
+    # on parentIndex/parentTitle, and the episode number on index. The
+    # `title` field itself only carries the episode name.
+    series_title = m.get("grandparentTitle") or None
+    season_title = m.get("parentTitle") or None
+    season_number = m.get("parentIndex")
+    episode_number = m.get("index")
+    try:
+        season_number = int(season_number) if season_number is not None else None
+    except (ValueError, TypeError):
+        season_number = None
+    try:
+        episode_number = int(episode_number) if episode_number is not None else None
+    except (ValueError, TypeError):
+        episode_number = None
+
+    # Build a unified display label that works for both movies and TV.
+    if media_type == "episode" and series_title:
+        season_ep = ""
+        if season_number is not None:
+            season_ep += f"S{season_number:02d}"
+        if episode_number is not None:
+            season_ep += f"E{episode_number:02d}"
+        bits = [series_title]
+        if season_ep:
+            bits.append(season_ep)
+        if title:
+            bits.append(title)
+        display_title = " · ".join(bits)
+    else:
+        display_title = f"{title} ({year})" if year else title
+
     return {
         "rating_key": str(m.get("ratingKey") or ""),
-        "title": m.get("title") or "",
-        "year": m.get("year"),
-        "type": m.get("type"),
+        "title": title,                       # episode name OR movie title
+        "year": year,
+        "type": media_type,
         "director": directors[0] if directors else None,
         "duration_ms": int(m.get("duration") or 0),
         "view_offset_ms": int(m.get("viewOffset") or 0),
@@ -222,6 +258,12 @@ def _parse_meta(m: dict) -> dict:
         "thumb": m.get("thumb"),
         "art": m.get("art"),
         "summary": m.get("summary") or "",
+        # New TV fields — None for movies.
+        "series_title": series_title,
+        "season_title": season_title,
+        "season_number": season_number,
+        "episode_number": episode_number,
+        "display_title": display_title,
     }
 
 

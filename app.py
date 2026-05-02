@@ -228,6 +228,10 @@ async def _generate_briefing_card(session_id: str, movie_id: int, plex_data: dic
             summary=plex_data.get("summary") or "",
             time_of_day=tod,
             is_continuation=is_continuation,
+            media_type=plex_data.get("type") or "movie",
+            series_title=plex_data.get("series_title"),
+            season_number=plex_data.get("season_number"),
+            episode_number=plex_data.get("episode_number"),
         )
     except Exception:
         log.exception("briefing generation failed")
@@ -580,7 +584,7 @@ async def _process_tim_message_body(
         try:
             scene_result = await gemini_brain.analyze_scene(
                 clip_path,
-                movie_title=plex.get("title"),
+                movie_title=plex.get("display_title") or plex.get("title"),
                 timestamp_label=_format_hms(plex.get("view_offset_ms") or 0),
                 target_chars=scene_target,
                 session_history=history_text,
@@ -591,7 +595,7 @@ async def _process_tim_message_body(
             try:
                 scene_result = await gemini_brain.analyze_scene(
                     clip_path,
-                    movie_title=plex.get("title"),
+                    movie_title=plex.get("display_title") or plex.get("title"),
                     timestamp_label=_format_hms(plex.get("view_offset_ms") or 0),
                     target_chars=scene_target,
                     session_history=history_text,
@@ -805,7 +809,7 @@ async def _process_reaction_body(
             emoji=emoji,
             label=label,
             scene_description=scene_desc,
-            movie_title=(plex.get("title") or "") if plex else "",
+            movie_title=((plex.get("display_title") or plex.get("title") or "") if plex else ""),
         )
     except Exception:
         log.exception("reaction one-liner failed")

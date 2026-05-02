@@ -1101,8 +1101,14 @@
         }
 
         bar.classList.remove('empty');
-        const yearLabel = p.year ? ` (${p.year})` : '';
-        titleEl.textContent = `${p.title}${yearLabel}`;
+        // Server provides a unified display_title that handles both movies
+        // ("Alien (1979)") and TV episodes ("Lost · S04E05 · The Constant").
+        if (p.display_title) {
+            titleEl.textContent = p.display_title;
+        } else {
+            const yearLabel = p.year ? ` (${p.year})` : '';
+            titleEl.textContent = `${p.title}${yearLabel}`;
+        }
 
         const progress = formatDurationMs(p.view_offset_ms);
         const total = formatDurationMs(p.duration_ms);

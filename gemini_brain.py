@@ -82,10 +82,23 @@ TRIVIA_SYSTEM_PROMPT = (
 )
 
 BRIEFING_SYSTEM_PROMPT = (
-    "You write a short film briefing as Tim's own first-person narration — "
-    "Tim's inner monologue as the movie starts. This will be wrapped inside "
-    "an emote block and sent as context to his AI companion Eli, but it is "
-    "NEVER written as direct address to Eli.\n"
+    "You write a short briefing as Tim's own first-person narration as a "
+    "movie OR TV episode starts. This will be wrapped inside an emote block "
+    "and sent as context to his AI companion Eli, but it is NEVER written "
+    "as direct address to Eli.\n"
+    "\n"
+    "TV-EPISODE HANDLING — if `media_type` is 'episode':\n"
+    "  • Reference the show name + season/episode (e.g. 'Lost S04E05') AND "
+    "    the episode title.\n"
+    "  • Cover BOTH the show's overall premise/tone AND what's specifically "
+    "    notable about THIS episode (its setup, what it's known for, why "
+    "    it stands out in the show).\n"
+    "  • If you don't recognize the specific episode, still cover the show "
+    "    and acknowledge the episode by name.\n"
+    "  • Ratings should be for the SHOW overall, not just this episode "
+    "    (e.g. RT score is for the series).\n"
+    "\n"
+    "MOVIE HANDLING — if `media_type` is 'movie': cover the movie itself.\n"
     "\n"
     "ABSOLUTE RULES:\n"
     "  • First person, present tense, Tim's POV. 'I', not 'we/us/you/Eli'.\n"
@@ -587,15 +600,29 @@ class GeminiBrain:
         summary: str = "",
         time_of_day: str = "evening",
         is_continuation: bool = False,
+        media_type: str = "movie",
+        series_title: Optional[str] = None,
+        season_number: Optional[int] = None,
+        episode_number: Optional[int] = None,
     ) -> dict[str, Any]:
         """Returns {briefing, scores, latency_ms, usage}.
 
-        `time_of_day` is one of: morning, afternoon, evening, late night.
-        `is_continuation` is True when this is not the first movie of the session.
+        For TV episodes, pass `media_type="episode"` plus `series_title`,
+        `season_number`, `episode_number`. The `title` field is the episode
+        name. The prompt covers both the show overall and this episode.
         """
         client = self._ensure_client()
         start = perf_counter()
-        facts = [f"Title: {title}"]
+        facts = [f"media_type: {media_type}"]
+        if media_type == "episode" and series_title:
+            facts.append(f"Show: {series_title}")
+            if season_number is not None:
+                facts.append(f"Season: {season_number}")
+            if episode_number is not None:
+                facts.append(f"Episode: {episode_number}")
+            facts.append(f"Episode title: {title}")
+        else:
+            facts.append(f"Title: {title}")
         if year:
             facts.append(f"Year: {year}")
         if director:
