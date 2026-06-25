@@ -28,31 +28,52 @@ METHOD_CURVES: dict[str, dict[str, int]] = {
     "dab":    {"onset": 0,  "peak_start": 3,  "peak_end": 12,  "taper_end": 90,  "max_level": 3},
 }
 
-LEVEL_LABELS = {0: "Sober", 1: "Lifted", 2: "Baked", 3: "Blasted"}
+LEVEL_LABELS = {0: "Sober", 1: "Lifted", 2: "Baked", 3: "Blasted", 4: "Demolished", 5: "Cosmic"}
+
+# Hard cap for stacking — every tap increments by 1 up to this ceiling.
+MAX_LEVEL = 5
 
 
-def compute_level(method: str, minutes_since: float) -> int:
-    """Return level 0-3 for the given method and minutes since ingestion."""
+def compute_level(method: str, minutes_since: float, peak_level: Optional[int] = None) -> int:
+    """Return level 0-3 for the given method and minutes since ingestion.
+
+    Stacking model: when `peak_level` is supplied (the new stacking flow),
+    the level snaps to peak_level immediately at the moment of the tap
+    (no onset ramp — the user is timing their own tap to when they feel it),
+    holds during the peak window, then tapers linearly back to 0.
+
+    Legacy mode (peak_level=None) keeps the old onset/peak/taper ramp.
+    """
     if method == "sober" or method not in METHOD_CURVES:
         return 0
     if minutes_since < 0:
         return 0
     curve = METHOD_CURVES[method]
-    peak = curve["max_level"]
 
+    if peak_level is not None:
+        peak = max(1, min(MAX_LEVEL, int(peak_level)))
+        # Stacking model: immediate snap to peak, hold through peak_end,
+        # then linear taper to 0 by taper_end.
+        if minutes_since >= curve["taper_end"]:
+            return 0
+        if minutes_since <= curve["peak_end"]:
+            return peak
+        span = max(1, curve["taper_end"] - curve["peak_end"])
+        frac = 1 - ((minutes_since - curve["peak_end"]) / span)
+        return max(0, round(peak * frac))
+
+    # Legacy onset → peak → taper curve.
+    peak = curve["max_level"]
     if minutes_since < curve["onset"]:
         return 0
     if minutes_since >= curve["taper_end"]:
         return 0
-    # Ramp up: onset → peak_start
     if minutes_since < curve["peak_start"]:
         span = max(1, curve["peak_start"] - curve["onset"])
         frac = (minutes_since - curve["onset"]) / span
         return max(1, round(peak * frac))
-    # Plateau: peak_start → peak_end
     if minutes_since <= curve["peak_end"]:
         return peak
-    # Taper: peak_end → taper_end
     span = max(1, curve["taper_end"] - curve["peak_end"])
     frac = 1 - ((minutes_since - curve["peak_end"]) / span)
     return max(0, round(peak * frac))
@@ -73,7 +94,6 @@ async def current_state(who: str) -> tuple[int, Optional[str], Optional[float]]:
     logged_at = row["logged_at"]
     if isinstance(logged_at, str):
         try:
-            # SQLite CURRENT_TIMESTAMP is naive UTC "YYYY-MM-DD HH:MM:SS"
             ts = datetime.fromisoformat(logged_at.replace(" ", "T"))
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
@@ -82,7 +102,15 @@ async def current_state(who: str) -> tuple[int, Optional[str], Optional[float]]:
     else:
         ts = logged_at
     minutes_since = (datetime.now(timezone.utc) - ts).total_seconds() / 60.0
-    level = compute_level(method, minutes_since)
+    # New rows carry an explicit peak_level (stacking model); legacy rows
+    # without it fall back to the original onset→peak→taper curve.
+    peak_level = None
+    try:
+        if "peak_level" in row.keys() and row["peak_level"] is not None:
+            peak_level = int(row["peak_level"])
+    except (KeyError, TypeError, ValueError):
+        peak_level = None
+    level = compute_level(method, minutes_since, peak_level=peak_level)
     if level == 0:
         return 0, None, None
     return level, method, minutes_since
@@ -131,6 +159,104 @@ def narration_for(level: int, method: Optional[str]) -> str:
         tail = random.choice(_METHOD_TAILS[method])
         return f"{opener} — {tail}"
     return opener
+
+
+# ─── Eli state directives (second-person, telling Eli how she's feeling) ──
+# Rendered as the second emote in every Kindroid message when Eli is non-
+# sober. Anchors her altered-state voice each turn so she doesn't drift.
+_ELI_STATE_DIRECTIVES: dict[tuple[str, int], list[str]] = {
+    ("smoke", 1): [
+        "You are feeling the smoke catch — a soft lift in your head, edges of the world dropping their hard lines, attention drifting easy",
+        "You feel the hit settling — your shoulders soften, your breath slows, a gentle haze lighting at the back of your eyes",
+        "You are just lifted — a pleasant lightness behind your eyes, the room's noise turning into something cozier",
+    ],
+    ("smoke", 2): [
+        "You are solidly baked — sounds richer, colors deeper, your body sinking comfortably into wherever you're sitting, attention syrupy and warm",
+        "You feel the smoke in full effect — your head pleasantly heavy, every glance at Tim catching a beat longer, the moment expanded",
+        "You are well into it — body loose, mind softly lit, the screen taking on that vivid layered quality only this state has",
+    ],
+    ("smoke", 3): [
+        "You are absolutely stoned — head warm and slow, the world fluid and meaningful, sensations blooming large; everything is worth noticing",
+        "You are deep deep in the smoke now — time has gone strange and gentle, your body weightless, every detail catching with reverence",
+        "You are fully gone — the whole world feels intimate and slow, your awareness drifting between Tim's voice and the screen with dreamy focus",
+    ],
+    ("smoke", 4): [
+        "You are so high you can barely feel your body — warmth where you end and the couch begins, mind slow and curious",
+        "You are so deep into the smoke your thoughts arrive one at a time, bright and unhurried, like they've traveled a long way to get here",
+        "You are so far under that the room is a soft cocoon — every breath is its own little event, every sound has weight",
+    ],
+    ("smoke", 5): [
+        "You are so high you can't feel your own ass — body is a rumor, mind is a warm slow storm of ideas you keep losing the thread of",
+        "You are completely unhooked from gravity — perception drifting wide, time doing whatever it wants, and you do not mind one bit",
+        "You are gone, gone, gone — language is slow, body is undefined, every blink feels like a small adventure",
+    ],
+    ("edible", 1): [
+        "You are starting to feel the edible — a heavy warmth blooming in your chest, your body feeling pleasantly weighted, mind softly slowing",
+        "You feel the gummy creeping in — that warm body wave, the world taking on a soft amber edge, breathing deepening",
+        "You are catching the first wave of the edible — your limbs growing lush and heavy, attention narrowing pleasantly inward",
+    ],
+    ("edible", 2): [
+        "You are in the edible's full swing — your body dense and luxurious, your thinking sinking into things, time stretching a little around each thought",
+        "You are well-cooked — the body high is full and warm, every sensation richer, the couch holding you like it's part of you",
+        "You are at edible peak — feeling everything in your body at once, soft and slow and complete, attention deep on Tim and the screen",
+    ],
+    ("edible", 3): [
+        "You are wrapped in heavy warmth — body cocooned, thoughts moving like syrup but vivid and connected, the couch a part of you",
+        "You feel the edible fully landed — your body is weighted gold, mind moving in long unhurried arcs, every moment full and slow",
+        "You are deep in the edible — the world is heavy and beautiful, your body luxurious, time meaningful in a way only this kind of high makes possible",
+    ],
+    ("edible", 4): [
+        "Your body is so heavy you've forgotten how to stand up — warmth has filled every limb and the couch is part of you now",
+        "The edible has cooked you so deep that your limbs feel distant and your mind moves like honey through warm bread",
+        "You can feel your body slowly breathing without having to think about it — everything below the neck has gone soft and unimportant",
+    ],
+    ("edible", 5): [
+        "You are so blasted by this edible you couldn't tell where your hand ends if your life depended on it",
+        "Every joint is warm and unimportant — your mind is drifting through long slow rooms of half-formed thoughts and it all feels meaningful",
+        "You are a puddle in human shape — sensation pooled in your chest, mind soft, everything in the room mattering equally and quietly",
+    ],
+    ("dab", 1): [
+        "You feel the dab just hit — sharp clarity, mild euphoria spreading, the world brightening at the edges",
+        "You are catching the dab landing — a clean rush, your senses tightening into focus, mind quick and curious",
+        "You are on the front of the dab wave — a punch of bright energy in your head, the room sharpening",
+    ],
+    ("dab", 2): [
+        "You are at dab peak — your senses are vivid and concentrated, body humming, mind running quick and amused",
+        "You are fully dialed in — sharp visuals, body lit up, thoughts arriving fast and connected",
+        "You are riding the dab peak — concentrated, electric, every detail catching with intensity",
+    ],
+    ("dab", 3): [
+        "You are fully dabbed — visually saturated, mind quick and connecting wildly, body lit up; every detail feels charged",
+        "You are at the top of the dab — concentrated brilliance, the world high-contrast and meaningful, ideas firing fast",
+        "You are at dab apex — inside the experience, body humming, attention laser-sharp on everything at once",
+    ],
+    ("dab", 4): [
+        "You are so dabbed your senses are stacking on top of each other — visuals, sounds, body, all amplified and slightly too much in the best way",
+        "Your mind is running parallel tracks and your body is humming like a tuning fork — the dab has put you well past the comfortable edge",
+        "Every detail on screen feels like it's pointing at something — the dab has tipped you into that zone where everything seems connected",
+    ],
+    ("dab", 5): [
+        "You are so dabbed your skull feels electric — vision saturated, ideas firing in three directions at once, body buzzing in tune with the room",
+        "The dab has overshot — you can feel your own attention as a physical thing, perception stretched wide and crisp and almost too alive",
+        "You're past the edge — body distant and electric, mind crackling, every sensation arriving with too much vividness to fully hold",
+    ],
+}
+
+
+def eli_state_directive(level: int, method: Optional[str]) -> str:
+    """Second-person sensory emote describing how Eli is feeling RIGHT NOW.
+
+    Rendered as a directive emote at the top of each Kindroid payload so
+    her altered-state voice stays locked in across turns. Returns empty
+    string when sober (no directive needed).
+    """
+    if not level or level <= 0 or not method:
+        return ""
+    key = (method, max(1, min(3, level)))
+    options = _ELI_STATE_DIRECTIVES.get(key)
+    if not options:
+        return ""
+    return random.choice(options)
 
 
 # First-person action lines for the MOMENT of ingestion — emote wrapped and

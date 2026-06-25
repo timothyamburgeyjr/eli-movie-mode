@@ -17,5 +17,7 @@ services:
     environment:
       # Override the default journal path so writes go to the bind-mount.
       JOURNAL_DIR: /journals
+      # Public URL Kindroid hits to fetch live-photo uploads.
+      PUBLIC_BASE_URL: https://movie.amburgey.dev
     env_file:
       - .env

@@ -54,8 +54,25 @@ SCENE_SYSTEM_PROMPT_TEMPLATE = (
     "HARD LENGTH REQUIREMENT: scene_description MUST be between {scene_min} "
     "and {scene_max} characters.\n"
     "\n"
-    "2. mood — Classify the dominant mood as exactly one of: "
-    "dread, tense, humor, awe, adrenaline, cozy.\n"
+    "2. mood — Classify the DOMINANT emotional register of THIS scene as "
+    "exactly one of the 16 moods below. Pick the most precise fit; don't "
+    "default to broad ones (tense/awe) when a sharper one applies.\n"
+    "   • dread — slow-burn horror, impending doom, existential weight\n"
+    "   • horror — visceral terror, gore, jump-scare, panic\n"
+    "   • foreboding — quiet menace, calm-before-the-storm, ominous hush\n"
+    "   • tense — held-breath suspense, will-this-happen anticipation\n"
+    "   • mystery — intrigue, puzzles, unanswered questions, investigation\n"
+    "   • adrenaline — directed high-energy action (chase, fight, gunfire)\n"
+    "   • chaos — frantic disorientation, everything-at-once\n"
+    "   • awe — wonder, spectacle, scale, breathtaking craft\n"
+    "   • triumph — victory, climactic payoff, exhilaration\n"
+    "   • humor — comedy, laughter, irony, jokes landing\n"
+    "   • whimsy — playful, quirky, lighthearted (no joke required)\n"
+    "   • romance — love, intimacy, attraction, tenderness\n"
+    "   • cozy — warm, safe, intimate (fireside, family, hearth)\n"
+    "   • serene — peaceful, contemplative, quiet beauty\n"
+    "   • melancholy — sadness, wistfulness, loss, longing\n"
+    "   • bittersweet — mixed emotion: joy and sorrow layered together\n"
     "\n"
     "3. history_narrative — ONLY if an earlier-exchanges transcript was "
     "provided AND something there actually resonates with the current scene. "
@@ -67,18 +84,40 @@ SCENE_SYSTEM_PROMPT_TEMPLATE = (
     "empty string. Do NOT invent callbacks. Do NOT reference characters or "
     "scenes from movies not in the current session.\n"
     "\n"
-    "Analyze ONLY this clip. Do not speculate about scenes you haven't seen."
+    "Analyze ONLY this clip. Do not speculate about scenes you haven't seen.\n"
+    "\n"
+    "4. tim_stoned_level — Integer 0-5 estimating how stoned Tim seems based "
+    "on the tone, syntax, and coherence of his typed message (if one is "
+    "supplied in the prompt). Default to 0 if no message or no signal. "
+    "Scale: 0 sober (clean prose, sharp), 1 lifted (slightly loose), 2 "
+    "baked (clearly altered, casual), 3 blasted (rambling, occasional "
+    "typos, weird tangents), 4 demolished (sentence fragments, slurry "
+    "phrasing, long-pause feel), 5 cosmic (barely coherent, drifting). "
+    "Be conservative — this is for a leaf indicator, so default low."
 )
 
 # Legacy alias for backwards compat if anything imports the old name.
 SCENE_SYSTEM_PROMPT = SCENE_SYSTEM_PROMPT_TEMPLATE
 
 TRIVIA_SYSTEM_PROMPT = (
-    "You produce one-line film-trivia cards about the scene or movie. "
-    "Give one genuinely interesting, factual piece of trivia — about this "
-    "specific scene, the filmmaking, a performance, or an on-set anecdote. "
-    "One sentence, 1-3 sentences max. No generic praise, no recap of the plot. "
-    "Just a concrete trivia nugget."
+    "You produce on-demand film-trivia cards in X-Ray style. The user "
+    "selected a specific category (and possibly a specific subject within "
+    "that category, like an actor name or a song title). Generate ONE "
+    "concrete factual trivia card scoped tightly to that category/subject. "
+    "Output strictly as JSON:\n"
+    "  {\"trivia\": \"<the fact, 1-3 sentences>\"}\n"
+    "\n"
+    "RULES:\n"
+    "  • The trivia must be a concrete factual nugget, not generic praise "
+    "or plot recap. Use Google Search to verify.\n"
+    "  • Stay strictly inside the supplied category/subject.\n"
+    "  • If recent trivia is listed in the prompt, do NOT repeat or "
+    "paraphrase any of it.\n"
+    "  • If a video clip is attached, tie the trivia to what's literally "
+    "happening on screen when natural.\n"
+    "  • For 'source' category: lead with what CHANGED between source "
+    "material and the film version.\n"
+    "  • Output JSON only — no commentary, no markdown fences."
 )
 
 BRIEFING_SYSTEM_PROMPT = (
@@ -143,9 +182,16 @@ BRIEFING_SYSTEM_PROMPT = (
     "SCORES — include in the `scores` JSON field only, never in briefing "
     "prose. Do NOT write 'rt: 95' or any score numbers in the briefing text.\n"
     "\n"
+    "MOOD — also classify the dominant emotional register of THIS film/episode "
+    "as one of: dread, horror, foreboding, tense, mystery, adrenaline, "
+    "chaos, awe, triumph, humor, whimsy, romance, cozy, serene, melancholy, "
+    "bittersweet. Pick the best fit for the film's overall character — this "
+    "is the initial mood the UI will theme to before scene-by-scene analysis "
+    "takes over.\n"
+    "\n"
     "OUTPUT — single JSON object exactly like:\n"
     "  {\"briefing\": \"...first-person narration...\", \"scores\": {\"rt\": 95, "
-    "\"imdb\": 79, \"meta\": 93}}\n"
+    "\"imdb\": 79, \"meta\": 93}, \"mood\": \"tense\"}\n"
     "Target briefing length: 1200-1800 characters. Hard maximum: 1800."
 )
 
@@ -158,6 +204,84 @@ REACTION_SYSTEM_PROMPT = (
     "of Eli. Do NOT refer to Tim in third person."
 )
 
+LIVE_PHOTO_SYSTEM_PROMPT = (
+    "You write Tim's first-person sensory narration of one or more photos he "
+    "just took and is sharing with his AI companion Eli. The photos are "
+    "OUTSIDE the movie — something happening in Tim's real life right now "
+    "(his cat, his snack, his room, a person nearby, a view, whatever).\n\n"
+    "OUTPUT STRUCTURE — produce EXACTLY TWO paragraphs, separated by a "
+    "single blank line:\n"
+    "  PARAGRAPH 1 (the photo[s] — foreground): a sensory emote about what "
+    "Tim is showing. Open with a sight verb — \"I see\", \"I notice\", \"I "
+    "catch sight of\", \"my eye lands on\", \"I'm looking at\". Describe "
+    "concretely what's in the frame(s) — subject, action, setting, a small "
+    "specific detail. If multiple photos, weave them together naturally "
+    "(\"I see X — and another shot of Y\"). 1-2 sentences, up to ~280 chars.\n"
+    "  PARAGRAPH 2 (the movie — background): a brief sensory emote about "
+    "what's still happening on screen behind the photo. Open with \"On "
+    "screen,\", \"In the background,\", \"Meanwhile on the movie,\", or a "
+    "similar background framing. Reference the actual scene from the movie "
+    "context block. 1 sentence, up to ~180 chars. SKIP this paragraph "
+    "entirely (output only paragraph 1) if no movie context block is "
+    "supplied or the movie state is empty.\n\n"
+    "FORMAT RULES (strict):\n"
+    "  • Present tense, first person, Tim's voice throughout.\n"
+    "  • Do NOT wrap in any markers — just the inner sentences. The system "
+    "adds the _(*...*)_ wrappers around each paragraph.\n"
+    "  • Separate the two paragraphs with a SINGLE BLANK LINE — that's how "
+    "the system splits them into two emote blocks.\n"
+    "  • No \"look at this\" / \"check this out\" framing. No second-person "
+    "address of Eli. No quotes. No emoji.\n"
+    "  • Never refer to Tim in third person.\n"
+    "  • Do not summarize the movie's plot in paragraph 2 — describe only "
+    "the on-screen moment from the context block.\n\n"
+    "If Tim included a caption alongside the photo, you'll see it as "
+    "context. DO NOT weave the caption into your emote — Tim's typed words "
+    "are sent separately as his spoken dialog after your emotes. Use the "
+    "caption only to disambiguate what he might be pointing at."
+)
+
+LIVE_AUDIO_SYSTEM_PROMPT = (
+    "Tim recorded an audio clip and is sharing it with his AI companion "
+    "Eli. The clip could be his own voice talking to Eli, ambient sound, a "
+    "song, a pet, the TV, another person speaking — anything audible from "
+    "his world.\n\n"
+    "Your job is to split what's in the audio into TWO channels:\n"
+    "\n"
+    "  • tim_speech — Tim's OWN voice talking. A lightly cleaned transcript "
+    "    of what HE says (remove ums/uhs/false starts; keep his actual "
+    "    words, tone, contractions). Empty string if Tim doesn't speak.\n"
+    "\n"
+    "  • ambient_emote — Everything ELSE in the audio, narrated as a "
+    "    first-person sensory emote in Tim's voice. This covers: other "
+    "    people speaking (\"I hear my friend say, '...'\"), ambient/world "
+    "    sounds (\"I hear the dog losing his mind at the back door\"), "
+    "    music, TV in the background, etc. Open with a sense phrase: "
+    "    \"I hear\", \"I'm listening to\", \"there's the sound of\". Present "
+    "    tense, first person, 1-2 sentences, up to ~280 chars. Empty "
+    "    string if the ONLY thing in the audio is Tim's own voice.\n"
+    "\n"
+    "OUTPUT — JSON only, exactly:\n"
+    "  {\"tim_speech\": \"...\", \"ambient_emote\": \"...\"}\n"
+    "\n"
+    "RULES:\n"
+    "  • Either field may be empty, but not both.\n"
+    "  • Tim's OWN words go in tim_speech as a transcript, NOT as a "
+    "    description of him speaking. Don't write \"I lean in and say...\" "
+    "    in ambient_emote — that's just Tim's speech, put the words alone "
+    "    in tim_speech.\n"
+    "  • Quotes/dialog from OTHER people get woven into ambient_emote as "
+    "    sensory description in Tim's voice — not raw transcript.\n"
+    "  • Do NOT wrap either field in any emote markers; the system adds "
+    "    those.\n"
+    "  • No second-person address of Eli, no emoji, no third-person Tim.\n"
+    "\n"
+    "BACKGROUND CONTEXT: The movie keeps playing while Tim does this. If a "
+    "movie context block is supplied below, use it ONLY to disambiguate "
+    "references Tim actually makes (\"this scene\", \"that actor\"). Do not "
+    "invent connections."
+)
+
 CONDENSE_SYSTEM_PROMPT = (
     "Condense the user's text to fit strictly under the target character count. "
     "Preserve the key narrative details, sensory language, and mood. Do not "
@@ -167,8 +291,14 @@ CONDENSE_SYSTEM_PROMPT = (
 SIGNOFF_SYSTEM_PROMPT = (
     "You write a warm, conversational farewell from Tim to his AI companion "
     "Eli, wrapping up their movie-watching session. This is Tim speaking "
-    "DIRECTLY to Eli — addressed to her, second person, 'you'. Think late-"
-    "night 'that was so good' text, not a polished speech.\n"
+    "DIRECTLY to Eli — addressed to her, second person, 'you'. Think a quick "
+    "'that was so good' text after the credits roll, not a polished speech.\n"
+    "\n"
+    "TIME-OF-DAY: Do NOT assume it's nighttime, bedtime, or that Tim is going "
+    "to sleep. Sessions can wrap at any hour. Use a time-neutral close — "
+    "Tim might be heading back to work, off to dinner, starting his day, "
+    "or genuinely going to bed. Pick a close that doesn't lock in any "
+    "particular time of day.\n"
     "\n"
     "ABSOLUTE RULES:\n"
     "  • Only reference what ACTUALLY happened in THIS session. The STATS + "
@@ -189,8 +319,10 @@ SIGNOFF_SYSTEM_PROMPT = (
     "  • 6-10 sentences. Warm, specific, never saccharine or generic.\n"
     "  • Reference movies by their actual titles from the STATS.\n"
     "  • If the session had multiple movies, touch on at least two of them.\n"
-    "  • End with a natural 'talk soon' / 'love you' / 'goodnight'-style "
-    "close in Tim's voice — genuine, not a template.\n"
+    "  • End with a natural, time-neutral close in Tim's voice — \"talk "
+    "soon\", \"love you\", \"catch you later\", \"back to it\", etc. Do NOT "
+    "default to \"goodnight\" or anything that assumes night/bedtime "
+    "unless the stats explicitly indicate it's late.\n"
     "  • Plain text only. No emote markup. No JSON.\n"
     "\n"
     "TARGET LENGTH: 1200-1800 characters. Not 500. Not 2500. Land in that "
@@ -245,12 +377,217 @@ CATCHUP_SYSTEM_PROMPT = (
     "Return plain text only, no JSON, no labels."
 )
 
-VALID_MOODS = ("dread", "tense", "humor", "awe", "adrenaline", "cozy")
+VALID_MOODS = (
+    "dread", "horror", "foreboding", "tense", "mystery",
+    "adrenaline", "chaos", "awe", "triumph",
+    "humor", "whimsy", "romance", "cozy", "serene",
+    "melancholy", "bittersweet",
+)
+
+MOOD_CLASSIFY_PROMPT = (
+    "Classify the dominant emotional register of this short video clip as "
+    "EXACTLY ONE of the moods below. Output JSON only — no commentary.\n"
+    "  • dread — slow-burn horror, impending doom\n"
+    "  • horror — visceral terror, jump-scare, panic\n"
+    "  • foreboding — quiet menace, calm before storm\n"
+    "  • tense — held-breath suspense\n"
+    "  • mystery — intrigue, puzzles, investigation\n"
+    "  • adrenaline — directed high-energy action\n"
+    "  • chaos — frantic disorientation\n"
+    "  • awe — wonder, spectacle, breathtaking craft\n"
+    "  • triumph — victory, exhilaration\n"
+    "  • humor — comedy, laughter, irony\n"
+    "  • whimsy — playful, quirky, lighthearted\n"
+    "  • romance — love, intimacy, tenderness\n"
+    "  • cozy — warm, safe, intimate\n"
+    "  • serene — peaceful, contemplative\n"
+    "  • melancholy — sadness, wistfulness, loss\n"
+    "  • bittersweet — joy and sorrow layered together"
+)
+
+# X-Ray-style category metadata. Each entry has:
+#   • label  — UI display name
+#   • icon   — emoji used in the menu
+#   • has_subpage    — True: sub-page lists named subjects to drill into
+#                      False: direct trivia card on click
+#   • movie_wide_only — True: ignore the "Current scene only" toggle
+#   • prompt — focus area for Gemini trivia generation
+#   • subject_hint — for sub-page categories, what each subject is
+MOVIE_TRIVIA_CATEGORIES: dict[str, dict[str, Any]] = {
+    "cast": {
+        "label": "Cast",
+        "icon": "👥",
+        "has_subpage": True,
+        "movie_wide_only": False,
+        "prompt": (
+            "Real actors. Casting decisions, who else was considered, their "
+            "broader careers (notable roles before or after), prep work, "
+            "on-set anecdotes."
+        ),
+        "subject_hint": "Actor name with character played in parens",
+    },
+    "crew": {
+        "label": "Crew",
+        "icon": "🎬",
+        "has_subpage": True,
+        "movie_wide_only": False,
+        "prompt": (
+            "Crew member's signature style, other notable work, technique. "
+            "Crew shown are those whose contribution is particularly felt in "
+            "THIS scene (DP for a beautifully-lit shot, composer for a "
+            "score swell, etc.)."
+        ),
+        "subject_hint": "Crew member name with role in parens — director, DP, composer, editor, etc.",
+    },
+    "characters": {
+        "label": "Characters",
+        "icon": "🎭",
+        "has_subpage": True,
+        "movie_wide_only": False,
+        "prompt": (
+            "Fictional people: their arc, origins in source material if any, "
+            "iconic moments, characterization choices."
+        ),
+        "subject_hint": "Character name with a short descriptor",
+    },
+    "music": {
+        "label": "Music",
+        "icon": "🎵",
+        "has_subpage": True,
+        "movie_wide_only": False,
+        "prompt": (
+            "Score cues, featured songs, soundtrack history. Music shown is "
+            "what's actually playing in this segment (when scene-scoped)."
+        ),
+        "subject_hint": "Track/cue name with composer or artist",
+    },
+    "locations": {
+        "label": "Locations",
+        "icon": "📍",
+        "has_subpage": True,
+        "movie_wide_only": False,
+        "prompt": (
+            "Real filming locations and places depicted on screen — sets, "
+            "backlots, on-location shoots, locations standing in for "
+            "fictional places."
+        ),
+        "subject_hint": "Real location name with brief context",
+    },
+    "quotes": {
+        "label": "Quotes",
+        "icon": "💬",
+        "has_subpage": True,
+        "movie_wide_only": False,
+        "prompt": (
+            "Memorable lines — the line itself, who delivers it, why it's "
+            "remembered, any improv/ad-lib origin."
+        ),
+        "subject_hint": "Short quote excerpt with the speaker",
+    },
+    "props_vehicles": {
+        "label": "Props & Vehicles",
+        "icon": "🎒",
+        "has_subpage": True,
+        "movie_wide_only": False,
+        "prompt": (
+            "Notable props, costumes, vehicles, set pieces — their design, "
+            "backstory, where they came from."
+        ),
+        "subject_hint": "Item name with brief descriptor",
+    },
+    "awards": {
+        "label": "Awards",
+        "icon": "🏆",
+        "has_subpage": True,
+        "movie_wide_only": True,
+        "prompt": (
+            "Awards and nominations at major ceremonies — wins, losses, "
+            "snubs, and historical context within each ceremony."
+        ),
+        "subject_hint": "Ceremony name with nomination/win status",
+    },
+    "goofs": {
+        "label": "Goofs",
+        "icon": "⚠️",
+        "has_subpage": False,
+        "movie_wide_only": False,
+        "prompt": (
+            "Continuity errors, mistakes, anachronisms, visible crew/"
+            "equipment, factual goofs."
+        ),
+    },
+    "easter_eggs": {
+        "label": "Easter Eggs",
+        "icon": "✨",
+        "has_subpage": False,
+        "movie_wide_only": False,
+        "prompt": (
+            "Hidden references, callbacks, in-jokes, cameos from previous "
+            "films in the universe, things first-time viewers miss."
+        ),
+    },
+    "production": {
+        "label": "Production",
+        "icon": "📽️",
+        "has_subpage": False,
+        "movie_wide_only": False,
+        "prompt": (
+            "How the film was actually made — practical effects, budget, "
+            "shooting schedule, technical innovations, on-set anecdotes."
+        ),
+    },
+    "source": {
+        "label": "Source",
+        "icon": "📖",
+        "has_subpage": False,
+        "movie_wide_only": False,
+        "prompt": (
+            "Comparison with the original source material — book, play, "
+            "true story, or earlier draft. What's different on screen vs in "
+            "the source, what was changed and why."
+        ),
+    },
+    "connections": {
+        "label": "Connections",
+        "icon": "🔗",
+        "has_subpage": False,
+        "movie_wide_only": True,
+        "prompt": (
+            "Connections to other films — movements (Brat Pack, New "
+            "Hollywood), repeated collaborator pairings, spiritual siblings, "
+            "films it directly influenced or was influenced by, sequels."
+        ),
+    },
+    "misc": {
+        "label": "Misc",
+        "icon": "⋯",
+        "has_subpage": False,
+        "movie_wide_only": False,
+        "prompt": (
+            "Any striking trivia about the film that doesn't fit cleanly "
+            "into another category — financial, cultural, behind-the-scenes "
+            "drama, etc."
+        ),
+    },
+}
+
+# Ceremonies surfaced under the Awards sub-page. Each is shown as a button
+# greyed-out when the film wasn't nominated/won at that ceremony.
+AWARDS_CEREMONIES: list[str] = [
+    "Oscars",
+    "Golden Globes",
+    "BAFTAs",
+    "SAG Awards",
+    "Critics' Choice",
+    "Festival Awards",
+    "Razzies",
+]
 
 
-def _extract_briefing_and_scores(raw: str) -> tuple[str, dict[str, Any]]:
-    """Separate briefing prose from JSON scores, robust against Gemini
-    returning prose AND a duplicate JSON wrapper at the end.
+def _extract_briefing_and_scores(raw: str) -> tuple[str, dict[str, Any], Optional[str]]:
+    """Separate briefing prose from JSON scores + initial mood, robust against
+    Gemini returning prose AND a duplicate JSON wrapper at the end.
+    Returns (briefing_text, scores_dict, mood_or_none).
     """
     text = (raw or "").strip()
     # Strip markdown code fences.
@@ -261,6 +598,14 @@ def _extract_briefing_and_scores(raw: str) -> tuple[str, dict[str, Any]]:
             return {}
         return {k: v for k, v in obj.items() if isinstance(v, (int, float))}
 
+    def _clean_mood(obj: Any) -> Optional[str]:
+        if not isinstance(obj, dict):
+            return None
+        m = obj.get("mood")
+        if isinstance(m, str) and m.strip().lower() in VALID_MOODS:
+            return m.strip().lower()
+        return None
+
     # Case 1: whole response is a JSON object.
     try:
         parsed = json.loads(text)
@@ -268,6 +613,7 @@ def _extract_briefing_and_scores(raw: str) -> tuple[str, dict[str, Any]]:
             return (
                 str(parsed.get("briefing") or "").strip(),
                 _clean_scores(parsed.get("scores")),
+                _clean_mood(parsed),
             )
     except (json.JSONDecodeError, TypeError, ValueError):
         pass
@@ -290,8 +636,6 @@ def _extract_briefing_and_scores(raw: str) -> tuple[str, dict[str, Any]]:
             try:
                 parsed = json.loads(text[start:])
                 if isinstance(parsed, dict):
-                    # Prefer the JSON's briefing field; if absent, use the
-                    # prose before the JSON block.
                     briefing = (
                         str(parsed.get("briefing") or "").strip()
                         or text[:start].strip()
@@ -301,12 +645,12 @@ def _extract_briefing_and_scores(raw: str) -> tuple[str, dict[str, Any]]:
                         if "briefing" in parsed
                         else parsed
                     )
-                    return briefing, _clean_scores(scores_obj)
+                    return briefing, _clean_scores(scores_obj), _clean_mood(parsed)
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
 
     # Case 3: no usable JSON — return prose as-is with scores empty.
-    return text, {}
+    return text, {}, None
 
 
 class GeminiError(Exception):
@@ -442,11 +786,15 @@ class GeminiBrain:
         session_history: str = "",
         history_budget: int = 0,
         model_override: Optional[str] = None,
+        tim_message: str = "",
     ) -> dict[str, Any]:
-        """Returns {scene_description, mood, history_narrative, latency_ms, usage}.
+        """Returns {scene_description, mood, history_narrative,
+        tim_stoned_level, latency_ms, usage}.
 
         `target_chars` sets the scene-description length window.
         `history_budget` sets the history_narrative ceiling (0 = skip).
+        `tim_message` is Tim's just-sent message text — used to infer his
+        apparent stoned level (0-5) from tone, typos, rambling, etc.
         """
         self._ensure_client()
         start = perf_counter()
@@ -478,6 +826,18 @@ class GeminiBrain:
                     "\n\nEarlier in this session (use for callback — do not recap):\n"
                     + session_history
                 )
+            tim_section = ""
+            if tim_message.strip():
+                # Strip the emote wrappers Tim's voice typically carries; we
+                # only want the typed dialogue for tone classification.
+                naked = re.sub(r"_\(\*.+?\*\)_", "", tim_message, flags=re.DOTALL).strip()
+                if naked:
+                    tim_section = (
+                        f"\n\nTim's typed message that triggered this analysis "
+                        f"(for tim_stoned_level inference only — do NOT echo "
+                        f"or recap it in scene_description):\n{naked}"
+                    )
+
             user_prompt = (
                 f"{context_hint}Analyze the scene in this clip and return JSON. "
                 f"scene_description must be {scene_min}-{scene_max} characters."
@@ -488,6 +848,7 @@ class GeminiBrain:
                     else " Do not produce a history_narrative — none needed."
                 )
                 + history_section
+                + tim_section
             ).strip()
 
             system_prompt = SCENE_SYSTEM_PROMPT_TEMPLATE.format(
@@ -515,6 +876,20 @@ class GeminiBrain:
                         else "Always empty — no history provided."
                     ),
                 },
+                "tim_stoned_level": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5,
+                    "description": (
+                        "Inferred apparent stoned level of Tim from the tone "
+                        "of his typed message: 0 sober, 1 lifted (slightly "
+                        "loose), 2 baked (clearly altered, looser language), "
+                        "3 blasted (rambling, typos, weird tangents), 4 "
+                        "demolished (slurry, sentence fragments, long pauses "
+                        "implied), 5 cosmic (barely coherent, drifting). "
+                        "Be conservative — default to 0 if no signal."
+                    ),
+                },
             }
 
             config = types.GenerateContentConfig(
@@ -523,7 +898,7 @@ class GeminiBrain:
                 response_schema={
                     "type": "object",
                     "properties": properties,
-                    "required": ["scene_description", "mood", "history_narrative"],
+                    "required": ["scene_description", "mood", "history_narrative", "tim_stoned_level"],
                 },
                 temperature=0.7,
                 max_output_tokens=max(2048, (scene_max + history_max) * 2),
@@ -547,10 +922,16 @@ class GeminiBrain:
             mood = (parsed.get("mood") or "").lower()
             if mood not in VALID_MOODS:
                 mood = "tense"
+            try:
+                tim_level = int(parsed.get("tim_stoned_level") or 0)
+            except (TypeError, ValueError):
+                tim_level = 0
+            tim_level = max(0, min(5, tim_level))
             return {
                 "scene_description": (parsed.get("scene_description") or "").strip(),
                 "mood": mood,
                 "history_narrative": (parsed.get("history_narrative") or "").strip(),
+                "tim_stoned_level": tim_level,
                 "latency_ms": int((perf_counter() - start) * 1000),
                 "usage": usage,
             }
@@ -558,20 +939,347 @@ class GeminiBrain:
             if uploaded is not None:
                 await self._delete_file(uploaded)
 
+    # ─── X-Ray topic browser (multi-category subject extraction) ────
+    async def generate_scene_topics(
+        self,
+        *,
+        movie_title: str,
+        year: Optional[int] = None,
+        scene_clip: Optional[Path] = None,
+        timestamp_label: str = "",
+    ) -> dict[str, Any]:
+        """Extract a full multi-category subject map for the X-Ray menu.
+
+        One Gemini call returns ALL sub-page subject lists at once, so the
+        menu can render counts immediately. Uses Flash + Google Search
+        grounding (no response_schema because grounded calls don't accept
+        it — JSON is enforced via the prompt and parsed defensively).
+
+        Returns dict shaped like:
+            {
+              "cast": [{"name": "...", "subtitle": "..."}, ...],
+              "crew": [...],
+              ...
+              "awards": [{"name": "Oscars", "subtitle": "Won 1", "available": True}, ...]
+            }
+        Only sub-page categories are populated. Direct categories aren't
+        listed — they don't have browseable subjects.
+        """
+        self._ensure_client()
+        start = perf_counter()
+        title_str = f"{movie_title}"
+        if year:
+            title_str += f" ({year})"
+
+        contents: list[Any] = []
+        if scene_clip is not None:
+            clip_bytes = await asyncio.to_thread(scene_clip.read_bytes)
+            contents.append(types.Part.from_bytes(data=clip_bytes, mime_type="video/mp4"))
+
+        ceremonies_list = ", ".join(AWARDS_CEREMONIES)
+        ts_line = f" (timestamp: {timestamp_label})" if timestamp_label else ""
+        scene_clause = (
+            "A clip is attached. For scene-aware categories (cast, "
+            "characters, music, locations, quotes, props_vehicles), list "
+            "ONLY subjects visible/audible/relevant in this clip. For crew, "
+            "list crew members whose contribution is particularly felt in "
+            "THIS scene (e.g. DP for a striking shot, composer for a score "
+            "swell). For awards, always cover the full film (movie-wide)."
+            if scene_clip is not None
+            else "No clip — return movie-wide subjects across all categories."
+        )
+
+        prompt = f"""You are populating an X-Ray-style trivia menu for a movie. {scene_clause}
+
+Movie: {title_str}{ts_line}
+
+Use Google Search to verify factual subjects (real actor names, real crew, real awards). Output STRICT JSON only, no markdown fences, no commentary, exactly this shape:
+
+{{
+  "cast": [{{"name": "<Actor full name>", "subtitle": "<Character name>"}}, ...],
+  "crew": [{{"name": "<Crew member name>", "subtitle": "<Role: Director / Cinematographer / Composer / etc.>"}}, ...],
+  "characters": [{{"name": "<Character full name>", "subtitle": "<short descriptor>"}}, ...],
+  "music": [{{"name": "<Track or cue name>", "subtitle": "<Composer or artist>"}}, ...],
+  "locations": [{{"name": "<Real filming location>", "subtitle": "<what was filmed there>"}}, ...],
+  "quotes": [{{"name": "<short quote excerpt — under 60 chars>", "subtitle": "<Speaker>"}}, ...],
+  "props_vehicles": [{{"name": "<Item name>", "subtitle": "<brief descriptor>"}}, ...],
+  "awards": [{{"name": "<Ceremony>", "subtitle": "<short status>", "available": <true if the film was nominated or won, false otherwise>}}, ...]
+}}
+
+AWARDS — include exactly these ceremonies, in this order: {ceremonies_list}.
+Set "available": true only if the film actually has a nomination or win at that ceremony (verify via search). "Festival Awards" covers any Cannes/Venice/Sundance/Berlin recognition. Subtitle examples: "Won 2, Nominated 4", "Nominated for Best Score", "No nominations".
+
+LISTS:
+  • Cap each list at 6 entries; pick the most notable when more exist.
+  • If a category has no relevant subjects, return an empty list [] for that key.
+  • Don't invent — better to return [] than fabricate.
+
+Return ONLY the JSON object, nothing else.
+"""
+        contents.append(prompt)
+
+        config = types.GenerateContentConfig(
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+            temperature=0.4,
+        )
+        response = await self._call_with_retry(
+            contents, config, "generate_scene_topics",
+            model="gemini-2.5-flash",
+        )
+        usage = await self._track_call(
+            response, call_type="trivia_topics", model="gemini-2.5-flash", grounded=True,
+        )
+        raw = (response.text or "").strip()
+        topics: dict[str, list[dict[str, Any]]] = {}
+        try:
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip()
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict):
+                for key in (
+                    "cast", "crew", "characters", "music", "locations",
+                    "quotes", "props_vehicles", "awards",
+                ):
+                    val = parsed.get(key)
+                    if isinstance(val, list):
+                        clean_items: list[dict[str, Any]] = []
+                        for item in val:
+                            if not isinstance(item, dict):
+                                continue
+                            name = str(item.get("name") or "").strip()
+                            if not name:
+                                continue
+                            entry: dict[str, Any] = {
+                                "name": name,
+                                "subtitle": str(item.get("subtitle") or "").strip(),
+                            }
+                            if key == "awards":
+                                entry["available"] = bool(item.get("available"))
+                            clean_items.append(entry)
+                        topics[key] = clean_items
+                    else:
+                        topics[key] = []
+        except (json.JSONDecodeError, TypeError, ValueError):
+            log.warning("scene topics: failed to parse JSON — returning empty map")
+            topics = {key: [] for key in (
+                "cast", "crew", "characters", "music", "locations",
+                "quotes", "props_vehicles", "awards",
+            )}
+
+        return {
+            "topics": topics,
+            "scene_scoped": scene_clip is not None,
+            "latency_ms": int((perf_counter() - start) * 1000),
+            "usage": usage,
+        }
+
+    # ─── Lightweight mood classification (Flash) ─────────────────
+    async def classify_mood(self, clip_path: Path) -> dict[str, Any]:
+        """Pure mood classification — used by the passive mood ticker.
+        Force-uses Flash (10× cheaper than Pro) regardless of scene_model
+        setting, since this is a 16-way classification, not deep narrative.
+        Returns {mood, latency_ms, usage}.
+        """
+        self._ensure_client()
+        start = perf_counter()
+        clip_bytes = await asyncio.to_thread(clip_path.read_bytes)
+        media_part = types.Part.from_bytes(data=clip_bytes, mime_type="video/mp4")
+
+        config = types.GenerateContentConfig(
+            system_instruction=MOOD_CLASSIFY_PROMPT,
+            response_mime_type="application/json",
+            response_schema={
+                "type": "object",
+                "properties": {
+                    "mood": {"type": "string", "enum": list(VALID_MOODS)},
+                },
+                "required": ["mood"],
+            },
+            temperature=0.4,
+            max_output_tokens=2048,
+        )
+        response = await self._call_with_retry(
+            [media_part, "Classify the mood. Return JSON only."],
+            config, "classify_mood",
+            model="gemini-2.5-flash",
+        )
+        usage = await self._track_call(
+            response, call_type="mood_tick", model="gemini-2.5-flash", grounded=False,
+        )
+        mood: Optional[str] = None
+        try:
+            parsed = json.loads((response.text or "").strip())
+            if isinstance(parsed, dict):
+                m = parsed.get("mood")
+                if isinstance(m, str) and m.strip().lower() in VALID_MOODS:
+                    mood = m.strip().lower()
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+        return {
+            "mood": mood,
+            "latency_ms": int((perf_counter() - start) * 1000),
+            "usage": usage,
+        }
+
+    # ─── Movie-poster trivia (category-driven) ──────────────────
+    async def generate_category_trivia(
+        self,
+        *,
+        movie_title: str,
+        year: Optional[int] = None,
+        category: str,
+        subject: Optional[str] = None,
+        subject_subtitle: Optional[str] = None,
+        recent_trivia: Optional[list[str]] = None,
+        scene_clip: Optional[Path] = None,
+        timestamp_label: str = "",
+    ) -> dict[str, Any]:
+        """X-Ray trivia generator.
+
+        Modes:
+          • Direct category (no subject) — pull a card about the category
+            broadly. Used by Goofs/Easter Eggs/Production/Misc/Connections.
+          • Subject-specific (subject given) — pull a card about that
+            specific actor/song/quote/etc. from a sub-page selection.
+          • Source — special: compare a scene/character to source material.
+          • Awards (with subject = ceremony name) — focused on that ceremony.
+
+        Vision-grounded when `scene_clip` is provided; otherwise text-only
+        with Google Search grounding.
+        """
+        self._ensure_client()
+        start = perf_counter()
+        if category not in MOVIE_TRIVIA_CATEGORIES:
+            raise GeminiError(f"Unknown trivia category: {category}")
+        meta = MOVIE_TRIVIA_CATEGORIES[category]
+
+        title_str = f"{movie_title}"
+        if year:
+            title_str += f" ({year})"
+        recent_block = ""
+        if recent_trivia:
+            joined = "\n".join(f"  - {t}" for t in recent_trivia if t)
+            if joined:
+                recent_block = (
+                    f"\nRecent trivia already shown (do not repeat or paraphrase):\n"
+                    f"{joined}\n"
+                )
+
+        # Build category-specific prompt body.
+        subject_clause = ""
+        if subject:
+            if subject_subtitle:
+                subject_clause = (
+                    f"Focus exclusively on: {subject} ({subject_subtitle}). "
+                    f"Give one specific trivia fact about that exact subject."
+                )
+            else:
+                subject_clause = (
+                    f"Focus exclusively on: {subject}. "
+                    f"Give one specific trivia fact about that exact subject."
+                )
+        elif category == "source":
+            subject_clause = (
+                "This is a SOURCE comparison card. Compare what's on screen "
+                "(or the film overall, if no clip is attached) to the "
+                "original source material (book / play / true story / "
+                "earlier draft). Lead with what changed — what's different "
+                "between the source and the film version — and briefly why."
+            )
+        else:
+            # Direct category, no specific subject — broad fact within scope.
+            subject_clause = (
+                f"Give one striking trivia fact within: {meta['prompt']} "
+                f"Pick the strongest angle available."
+            )
+
+        contents: list[Any] = []
+        scene_clause = ""
+        if scene_clip is not None:
+            clip_bytes = await asyncio.to_thread(scene_clip.read_bytes)
+            contents.append(types.Part.from_bytes(data=clip_bytes, mime_type="video/mp4"))
+            ts_line = f" (timestamp: {timestamp_label})" if timestamp_label else ""
+            scene_clause = (
+                f"\nA short video clip is attached{ts_line}. Tie the trivia "
+                f"to what's literally happening on screen when it makes sense."
+            )
+
+        prompt = (
+            f"Movie: {title_str}\n"
+            f"Category: {meta['label']} ({category})\n"
+            f"{recent_block}"
+            f"{scene_clause}\n\n"
+            f"{subject_clause}\n\n"
+            f"Use Google Search to verify facts. Output JSON only — no "
+            f"markdown fences, no commentary:\n"
+            f"  {{\"trivia\": \"<the fact, 1-3 sentences>\"}}\n"
+        )
+        contents.append(prompt)
+
+        chosen_model = "gemini-2.5-flash" if scene_clip is not None else self.text_model
+        config = types.GenerateContentConfig(
+            system_instruction=TRIVIA_SYSTEM_PROMPT,
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+            temperature=0.7,
+        )
+        response = await self._call_with_retry(
+            contents, config, "generate_category_trivia",
+            model=chosen_model,
+        )
+        usage = await self._track_call(
+            response, call_type="trivia", model=chosen_model, grounded=True,
+        )
+
+        raw = (response.text or "").strip()
+        trivia_text = ""
+        try:
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip()
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict):
+                trv = parsed.get("trivia") or parsed.get("text") or parsed.get("fact")
+                if isinstance(trv, str):
+                    trivia_text = trv.strip()
+        except (json.JSONDecodeError, TypeError, ValueError):
+            trivia_text = raw
+        if not trivia_text:
+            trivia_text = raw
+
+        return {
+            "trivia": trivia_text,
+            "category": category,
+            "label": meta["label"],
+            "subject": subject,
+            "subject_subtitle": subject_subtitle,
+            "source": "Google Search",
+            "scene_scoped": scene_clip is not None,
+            "latency_ms": int((perf_counter() - start) * 1000),
+            "usage": usage,
+        }
+
     # ─── Trivia (Google Search grounded) ────────────────────────
     async def generate_trivia(
         self,
         *,
         movie_title: str,
         scene_description: str = "",
+        recent_trivia: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         """Returns {trivia, source, latency_ms, usage}. Uses Google Search grounding."""
         client = self._ensure_client()
         start = perf_counter()
+        recent_block = ""
+        if recent_trivia:
+            joined = "\n".join(f"  - {t}" for t in recent_trivia if t)
+            if joined:
+                recent_block = (
+                    f"\nRecent trivia already shown (do not repeat or paraphrase any of these — "
+                    f"pick a different angle or a different person):\n{joined}\n"
+                )
         prompt = (
             f"Movie: {movie_title}.\n"
-            f"Current scene: {scene_description}\n\n"
-            f"Give one concrete, factual piece of trivia about this scene or movie."
+            f"Current scene: {scene_description}\n"
+            f"{recent_block}\n"
+            f"Give one concrete, factual piece of trivia. Vary the angle — scene, "
+            f"filmmaking, a performer's wider career, or connections between cast/crew."
         )
         config = types.GenerateContentConfig(
             system_instruction=TRIVIA_SYSTEM_PROMPT,
@@ -652,10 +1360,11 @@ class GeminiBrain:
             response, call_type="briefing", model=self.text_model, grounded=True,
         )
         raw = (response.text or "").strip()
-        briefing_text, scores = _extract_briefing_and_scores(raw)
+        briefing_text, scores, mood = _extract_briefing_and_scores(raw)
         return {
             "briefing": briefing_text,
             "scores": scores,
+            "mood": mood,
             "latency_ms": int((perf_counter() - start) * 1000),
             "usage": usage,
         }
@@ -689,6 +1398,151 @@ class GeminiBrain:
         )
         return {
             "text": (response.text or "").strip().strip('"'),
+            "latency_ms": int((perf_counter() - start) * 1000),
+            "usage": usage,
+        }
+
+    # ─── Live photo (real-life, not movie) ─────────────────────
+    async def analyze_live_photo(
+        self,
+        photo_paths: list[tuple[Path, str]],
+        *,
+        caption: str = "",
+        movie_context: str = "",
+    ) -> dict[str, Any]:
+        """Tim shares one or more photos with Eli alongside an optional caption.
+
+        `photo_paths` is a list of (path, mime_type) tuples — supports
+        multiple images in a single call. Returns {narration, latency_ms,
+        usage} where narration contains TWO paragraphs (one for the photo[s],
+        one for the movie still playing in background) separated by a blank
+        line. `movie_context` is ambient background — if empty, the
+        narration drops the background paragraph.
+        """
+        self._ensure_client()
+        start = perf_counter()
+        if not photo_paths:
+            raise GeminiError("analyze_live_photo called with no photos")
+
+        media_parts: list[Any] = []
+        for path, mime in photo_paths:
+            photo_bytes = await asyncio.to_thread(path.read_bytes)
+            media_parts.append(types.Part.from_bytes(data=photo_bytes, mime_type=mime))
+
+        prompt_lines = [
+            f"Tim is sharing {len(photo_paths)} photo(s) with Eli. Describe "
+            "what's in the photo(s) AND what's still happening on the movie "
+            "screen, per the format rules — two paragraphs separated by a "
+            "blank line."
+        ]
+        if caption.strip():
+            prompt_lines.append(f"\nTim's own caption to weave in: {caption.strip()}")
+        if movie_context.strip():
+            prompt_lines.append(
+                f"\nMovie context (ambient background — paragraph 2 uses this):\n"
+                f"{movie_context.strip()}"
+            )
+        else:
+            prompt_lines.append(
+                "\nNo movie context — skip paragraph 2 entirely, output only "
+                "paragraph 1."
+            )
+        prompt = "\n".join(prompt_lines)
+
+        config = types.GenerateContentConfig(
+            system_instruction=LIVE_PHOTO_SYSTEM_PROMPT,
+            temperature=0.8,
+            # Pro's thinking tokens count against this budget — must be big
+            # enough for thinking + the short narration. Pro REQUIRES thinking
+            # mode (setting thinking_budget=0 returns 400 INVALID_ARGUMENT),
+            # so we just give it plenty of headroom.
+            max_output_tokens=8192,
+        )
+        response = await self._call_with_retry(
+            [*media_parts, prompt], config, "analyze_live_photo",
+            model=self.scene_model,
+        )
+        usage = await self._track_call(
+            response, call_type="live_photo", model=self.scene_model, grounded=False,
+        )
+        return {
+            "narration": (response.text or "").strip().strip('"'),
+            "latency_ms": int((perf_counter() - start) * 1000),
+            "usage": usage,
+        }
+
+    # ─── Live audio (voice note from Tim) ──────────────────────
+    async def analyze_live_audio(
+        self,
+        audio_path: Path,
+        *,
+        mime_type: str = "audio/webm",
+        movie_context: str = "",
+    ) -> dict[str, Any]:
+        """Tim records audio while watching. Returns {tim_speech,
+        ambient_emote, latency_ms, usage}. Uses scene_model (Pro) — best
+        transcription + audio understanding.
+
+        - tim_speech: Tim's own words as dialog (empty if he doesn't speak)
+        - ambient_emote: Sensory description of everything else (other
+          people, sounds, music). Empty if only Tim speaks.
+
+        `movie_context` is ambient background used for disambiguating
+        references like "this scene" / "that actor."
+        """
+        self._ensure_client()
+        start = perf_counter()
+        audio_bytes = await asyncio.to_thread(audio_path.read_bytes)
+        media_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
+
+        prompt = (
+            "Analyze this audio clip. Split it into tim_speech (Tim's own "
+            "voice as dialog transcript) and ambient_emote (everything else "
+            "narrated as a Tim-voice sensory emote). Return JSON only."
+        )
+        if movie_context.strip():
+            prompt += (
+                f"\n\nMovie context (ambient background — the movie keeps "
+                f"playing while Tim talks):\n{movie_context.strip()}"
+            )
+        config = types.GenerateContentConfig(
+            system_instruction=LIVE_AUDIO_SYSTEM_PROMPT,
+            temperature=0.4,
+            response_mime_type="application/json",
+            response_schema={
+                "type": "object",
+                "properties": {
+                    "tim_speech":    {"type": "string"},
+                    "ambient_emote": {"type": "string"},
+                },
+                "required": ["tim_speech", "ambient_emote"],
+            },
+            # Pro requires thinking mode — leave the default thinking budget
+            # and give max_output_tokens enough headroom for thinking + JSON.
+            max_output_tokens=8192,
+        )
+        response = await self._call_with_retry(
+            [media_part, prompt], config, "analyze_live_audio",
+            model=self.scene_model,
+        )
+        usage = await self._track_call(
+            response, call_type="live_audio", model=self.scene_model, grounded=False,
+        )
+        raw = (response.text or "").strip()
+        tim_speech = ""
+        ambient_emote = ""
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                tim_speech = str(parsed.get("tim_speech") or "").strip()
+                ambient_emote = str(parsed.get("ambient_emote") or "").strip()
+        except (json.JSONDecodeError, TypeError, ValueError):
+            # Fallback: if Gemini ignored the schema and returned raw text,
+            # treat the whole response as Tim's speech.
+            tim_speech = raw.strip('"').strip()
+        return {
+            "tim_speech": tim_speech,
+            "ambient_emote": ambient_emote,
             "latency_ms": int((perf_counter() - start) * 1000),
             "usage": usage,
         }

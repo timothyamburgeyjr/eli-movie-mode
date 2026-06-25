@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     kindroid_char_limit: int = 2000
     gemini_daily_budget: int = 1000
 
+    # Externally-visible URL for this app — needed when handing image URLs
+    # to Kindroid, which fetches them server-side. Set to e.g.
+    # "https://movie.amburgey.dev" in production.
+    public_base_url: str = "http://localhost:8765"
+    live_photos_dir: str = "data/live_photos"
+    live_audio_dir: str = "data/live_audio"
+
     plex_poll_interval_seconds: int = 5
     default_capture_seconds: int = 30
     # Seedbox reverse-proxies often present a cert that doesn't match the hostname;

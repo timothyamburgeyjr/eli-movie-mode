@@ -3,7 +3,9 @@ import asyncio
 import json
 import logging
 import random
+import re
 import secrets
+import shutil
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -12,7 +14,7 @@ from typing import Any, Optional
 
 import bcrypt
 import httpx
-from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -31,7 +33,8 @@ from session_manager import (
 )
 from stoned_tracker import current_state as stoned_current_state
 from stoned_tracker import ingestion_narration
-from stoned_tracker import narration_for as stoned_narration_for
+from stoned_tracker import eli_state_directive
+from stoned_tracker import narration_for as stoned_narration_for  # legacy — Tim-POV, no longer used
 from stoned_tracker import reinforcement_narration
 from smart_snap import (
     FFmpegError,
@@ -56,9 +59,16 @@ async def lifespan(app: FastAPI):
     plex_monitor.add_listener(_on_plex_event)
     await plex_monitor.start()
 
+    mood_task = asyncio.create_task(_mood_ticker_loop(), name="mood-ticker")
+
     try:
         yield
     finally:
+        mood_task.cancel()
+        try:
+            await mood_task
+        except asyncio.CancelledError:
+            pass
         await plex_monitor.stop()
         await db.close()
 
@@ -67,7 +77,15 @@ app = FastAPI(title="Project Eli: Movie Mode", lifespan=lifespan)
 
 templates = Jinja2Templates(directory="templates")
 Path("static/frames").mkdir(parents=True, exist_ok=True)
+Path(settings.live_photos_dir).mkdir(parents=True, exist_ok=True)
+Path(settings.live_audio_dir).mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+# Public, unauthenticated — Kindroid fetches images server-side and won't carry
+# a session cookie. The per-photo UUID path acts as the access secret. Files
+# live under data/live_photos/{session_id}/{uuid}.{ext} and get wiped on
+# session finalize. Audio uses the same disposable-storage pattern.
+app.mount("/photos", StaticFiles(directory=settings.live_photos_dir), name="photos")
+app.mount("/audio", StaticFiles(directory=settings.live_audio_dir), name="audio")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -198,10 +216,16 @@ async def _generate_briefing_card(session_id: str, movie_id: int, plex_data: dic
     when session-start and media_change both fire for the same rating_key.
     """
     existing = await db.fetch_one(
-        "SELECT briefing FROM movies WHERE id = ?", (movie_id,)
+        "SELECT briefing, mood FROM movies WHERE id = ?", (movie_id,)
     )
     if existing and (existing["briefing"] or "").strip():
-        log.debug("briefing already exists for movie %s, skipping", movie_id)
+        # Even though the briefing is cached, broadcast the stored mood so
+        # the Movie Mode button themes correctly on this fresh session.
+        cached_mood = (existing["mood"] or "").strip()
+        if cached_mood:
+            await manager.broadcast({"type": "mood", "mood": cached_mood})
+            _mood_tick_state["last_mood"] = cached_mood
+        log.debug("briefing already exists for movie %s, skipping generation", movie_id)
         return
 
     if _pipeline_paused():
@@ -257,13 +281,19 @@ async def _generate_briefing_card(session_id: str, movie_id: int, plex_data: dic
         latency_ms=result.get("latency_ms"),
     )
     await db.execute(
-        "UPDATE movies SET briefing = ? WHERE id = ?",
-        (briefing_text, movie_id),
+        "UPDATE movies SET briefing = ?, mood = ? WHERE id = ?",
+        (briefing_text, result.get("mood"), movie_id),
     )
     row = await db.fetch_one("SELECT * FROM messages WHERE id = ?", (msg_id,))
     await manager.broadcast(
         {"type": "message", "message": _message_to_payload(row_to_dict(row) or {})}
     )
+    # Broadcast the initial mood from the briefing so the Movie Mode button
+    # themes itself immediately, before any scene analysis has run.
+    initial_mood = result.get("mood")
+    if initial_mood:
+        await manager.broadcast({"type": "mood", "mood": initial_mood})
+        _mood_tick_state["last_mood"] = initial_mood
     await _broadcast_cost(session_id)
 
     # Actually relay the briefing to Kindroid so Eli has context.
@@ -301,6 +331,19 @@ _away_active: bool = False
 _away_entered_at: Optional[datetime] = None
 _away_plex_offset_ms: Optional[int] = None
 
+# Mood ticker state — drives the passive 30s mood heartbeat. last_full_scene_at
+# is set whenever a full Pro scene analysis runs (so the ticker doesn't
+# re-classify mood right after a Tim message already did).
+_mood_tick_state: dict[str, Any] = {
+    "last_mood": None,
+    "last_check_at": None,         # datetime aware
+    "last_plex_offset_ms": None,   # int
+    "last_full_scene_at": None,    # datetime aware
+}
+_MOOD_TICK_CADENCE_SEC = 30
+_MOOD_TICK_SKIP_AFTER_SCENE_SEC = 45  # skip if Pro scene just classified mood
+_MOOD_TICK_CLIP_SECONDS = 3
+
 
 def _pipeline_paused() -> bool:
     """Return True when any session-control flag should block pipeline work.
@@ -309,6 +352,110 @@ def _pipeline_paused() -> bool:
     WDIM catch-up flow complete when the user returns.
     """
     return _standby_active or _away_active
+
+
+def _mark_full_scene_mood(mood: Optional[str]) -> None:
+    """Record that a full Pro scene analysis just classified the mood, so
+    the passive mood ticker knows to skip its next cycle. Called from both
+    `_process_tim_message_body` and `_process_reaction_body`.
+    """
+    if mood:
+        _mood_tick_state["last_mood"] = mood
+    _mood_tick_state["last_full_scene_at"] = datetime.now(timezone.utc)
+
+
+async def _maybe_tick_mood(*, force: bool = False) -> None:
+    """Run a lightweight mood classification on the current scene IF the
+    skip rules allow. Cheap Flash call (~$0.0007) with broadcast-on-change.
+
+    Skip rules:
+      • Pipeline paused (standby / away) — no work
+      • No active session — no work
+      • Plex not playing or no part_key — nothing to clip
+      • Playhead hasn't advanced since last check — same frame on screen
+      • Full Pro scene analysis ran in last 45s — mood is already fresh
+      • Last mood check ran less than cadence seconds ago — dedup
+
+    `force=True` bypasses ONLY the cadence dedup (e.g., when a photo/audio/
+    trivia event wants an immediate refresh). Other skip rules still apply.
+    """
+    if _pipeline_paused():
+        return
+    active = await db.get_active_session()
+    if not active:
+        return
+    session_id = active["id"]
+
+    now = datetime.now(timezone.utc)
+
+    last_full = _mood_tick_state.get("last_full_scene_at")
+    if last_full and (now - last_full).total_seconds() < _MOOD_TICK_SKIP_AFTER_SCENE_SEC:
+        return
+
+    last_check = _mood_tick_state.get("last_check_at")
+    if not force and last_check and (now - last_check).total_seconds() < _MOOD_TICK_CADENCE_SEC:
+        return
+
+    plex = plex_monitor.current_state()
+    if not plex or not plex.get("part_key"):
+        return
+    if (plex.get("state") or "").lower() != "playing":
+        return
+
+    current_offset = int(plex.get("view_offset_ms") or 0)
+    last_offset = _mood_tick_state.get("last_plex_offset_ms")
+    if last_offset is not None and current_offset == last_offset:
+        return  # paused / stuck — nothing to re-classify
+
+    _mood_tick_state["last_check_at"] = now
+    _mood_tick_state["last_plex_offset_ms"] = current_offset
+
+    clip_path: Optional[Path] = None
+    try:
+        view_offset_sec = current_offset / 1000.0
+        stream_url = build_stream_url(plex["part_key"])
+        clip_path = await extract_clip(stream_url, view_offset_sec, _MOOD_TICK_CLIP_SECONDS)
+    except Exception:
+        log.debug("mood ticker: clip extraction failed", exc_info=True)
+        return
+
+    try:
+        result = await gemini_brain.classify_mood(clip_path)
+    except Exception:
+        log.debug("mood ticker: Flash classify failed", exc_info=True)
+        return
+    finally:
+        if clip_path and clip_path.exists():
+            try:
+                clip_path.unlink()
+            except OSError:
+                pass
+
+    new_mood = result.get("mood")
+    if not new_mood:
+        return
+    prev = _mood_tick_state.get("last_mood")
+    if new_mood == prev:
+        return  # No change — keep the WS quiet, the UI doesn't need a re-render.
+    _mood_tick_state["last_mood"] = new_mood
+    await manager.broadcast({"type": "mood", "mood": new_mood})
+    await _broadcast_cost(session_id)
+    log.info("mood ticker: %s → %s (offset %.1fs)", prev, new_mood, view_offset_sec)
+
+
+async def _mood_ticker_loop() -> None:
+    """Background heartbeat. Wakes every cadence interval and asks
+    `_maybe_tick_mood` to do work — that helper handles all skip rules.
+    """
+    log.info("mood ticker started (cadence=%ds)", _MOOD_TICK_CADENCE_SEC)
+    while True:
+        try:
+            await asyncio.sleep(_MOOD_TICK_CADENCE_SEC)
+            await _maybe_tick_mood()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("mood ticker iteration crashed — continuing")
 
 
 async def _fire_stoned_emote(session_id: str, narration: str) -> None:
@@ -392,6 +539,7 @@ async def _send_to_kindroid_and_render(
     typed_dialogue: str = "",
     mood: Optional[str] = None,
     show_typing: bool = True,
+    image_urls: Optional[list[str]] = None,
 ) -> None:
     # Respect any mid-flight standby/away flip.
     if _pipeline_paused():
@@ -430,8 +578,45 @@ async def _send_to_kindroid_and_render(
 
     if show_typing:
         await manager.broadcast({"type": "eli_typing", "on": True})
+    log.info(
+        "kindroid SEND session=%s payload_chars=%d image_urls=%d",
+        session_id, len(payload), len(image_urls or []),
+    )
     try:
-        reply = await send_message(payload)
+        reply = await send_message(payload, image_urls=image_urls)
+        raw_text = (reply.get("raw") or "")
+        log.info(
+            "kindroid REPLY session=%s raw_chars=%d stripped_chars=%d segments=%d emote_chars=%d spoken_chars=%d",
+            session_id,
+            len(raw_text),
+            len(raw_text.strip()),
+            len(reply.get("segments") or []),
+            len(reply.get("emote_text") or ""),
+            len(reply.get("spoken_text") or ""),
+        )
+        raw_preview = raw_text[:200].replace("\n", " ⏎ ")
+        log.info("kindroid REPLY preview: %r", raw_preview)
+        # Safety net: Kindroid sometimes returns whitespace-only bodies for
+        # reasons we don't yet fully understand (possibly API config mismatch,
+        # rate-limit silent failure, or content moderation). Surface it as a
+        # system message so the user knows something went wrong rather than
+        # seeing a silent empty Eli bubble.
+        if not raw_text.strip():
+            log.warning("kindroid returned empty body — surfacing system error to user")
+            await db.add_message(
+                session_id, "system",
+                "Eli's response came back empty — Kindroid returned nothing. "
+                "Check API credentials, AI ID, or whether the message tripped a filter.",
+            )
+            snap_row = await db.fetch_one(
+                "SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+                (session_id,),
+            )
+            if snap_row:
+                await manager.broadcast(
+                    {"type": "message", "message": _message_to_payload(row_to_dict(snap_row) or {})}
+                )
+            return
     except KindroidError as e:
         log.exception("kindroid relay failed")
         detail = str(e)[:200] or "no detail"
@@ -453,8 +638,15 @@ async def _send_to_kindroid_and_render(
         if show_typing:
             await manager.broadcast({"type": "eli_typing", "on": False})
 
-    # Stamp current stoned levels on Eli's row for per-message leaf rendering.
-    eli_tim_level, _, _ = await stoned_current_state("tim")
+    # Tim's leaf level is inferred by Gemini at scene-analysis time and
+    # stamped on his most recent message. Inherit that here so Eli's reply
+    # shows the same leaf count (visual continuity per exchange).
+    latest_tim_row = await db.fetch_one(
+        "SELECT stoned_level_tim FROM messages WHERE session_id = ? "
+        "AND sender = 'tim' ORDER BY id DESC LIMIT 1",
+        (session_id,),
+    )
+    eli_tim_level = int(latest_tim_row["stoned_level_tim"] or 0) if latest_tim_row else 0
     eli_eli_level, _, _ = await stoned_current_state("eli")
     eli_msg_id = await db.add_message(
         session_id,
@@ -561,9 +753,11 @@ async def _process_tim_message_body(
     history_text = await build_session_history_for_gemini(session_id)
     history_budget = 250 if history_text.strip() else 0
 
-    tim_level, tim_method, _ = await stoned_current_state("tim")
-    eli_level, _, _ = await stoned_current_state("eli")
-    stoned_line = stoned_narration_for(tim_level, tim_method)
+    # Tim's tracker retired — his body handles his own state; his message
+    # tone communicates it to Eli. We only inject Eli's directive emote.
+    tim_level = 0
+    eli_level, eli_method, _ = await stoned_current_state("eli")
+    stoned_line = eli_state_directive(eli_level, eli_method)
     stoned_budget = len(stoned_line) + 10 if stoned_line else 0
 
     scene_target = max(500, total_emote_budget - history_budget - stoned_budget)
@@ -589,6 +783,7 @@ async def _process_tim_message_body(
                 target_chars=scene_target,
                 session_history=history_text,
                 history_budget=history_budget,
+                tim_message=tim_dialogue,
             )
         except GeminiError as primary_err:
             log.warning("Pro scene analysis failed, falling back to Flash: %s", primary_err)
@@ -601,6 +796,7 @@ async def _process_tim_message_body(
                     session_history=history_text,
                     history_budget=history_budget,
                     model_override="gemini-2.5-flash",
+                    tim_message=tim_dialogue,
                 )
                 scene_error_msg = "Commentary running on Flash fallback — Pro unavailable."
             except GeminiError as fallback_err:
@@ -638,18 +834,13 @@ async def _process_tim_message_body(
                 {"type": "message", "message": _message_to_payload(row_to_dict(err_row) or {})}
             )
 
-    trivia_text: Optional[str] = None
-    if scene_result and str(settings_map.get("trivia_grounding", "true")) == "true":
-        exchange_count = await _count_tim_exchanges(session_id)
-        if exchange_count % 3 == 0:
-            try:
-                trivia = await gemini_brain.generate_trivia(
-                    movie_title=plex.get("title") or "",
-                    scene_description=scene_result.get("scene_description", ""),
-                )
-                trivia_text = trivia.get("trivia") or None
-            except Exception:
-                log.exception("trivia generation failed")
+    # Auto-trivia retired — trivia is now exclusively user-triggered via the
+    # poster menu. The `trivia` column on this row stays NULL.
+
+    # Tim's leaf level is inferred by Gemini from his message tone (added to
+    # the scene_result JSON). Fall back to 0 when scene analysis didn't run.
+    if scene_result and scene_result.get("tim_stoned_level") is not None:
+        tim_level = int(scene_result.get("tim_stoned_level") or 0)
 
     # Persist analysis fields on Tim's message row.
     await db.execute(
@@ -660,7 +851,7 @@ async def _process_tim_message_body(
         (
             scene_result.get("scene_description") if scene_result else None,
             scene_result.get("mood") if scene_result else None,
-            trivia_text,
+            None,
             scene_result.get("latency_ms") if scene_result else None,
             tim_level,
             eli_level,
@@ -675,6 +866,7 @@ async def _process_tim_message_body(
         )
     if scene_result and scene_result.get("mood"):
         await manager.broadcast({"type": "mood", "mood": scene_result["mood"]})
+        _mark_full_scene_mood(scene_result["mood"])
     await _broadcast_cost(session_id)
 
     # Relay to Kindroid for Eli's reply. Per spec, we ALWAYS send to Kindroid
@@ -819,9 +1011,16 @@ async def _process_reaction_body(
     oneliner = (result.get("text") or "").strip()
     new_content = f"{emoji} {oneliner}".strip()
 
-    tim_level, tim_method, _ = await stoned_current_state("tim")
-    eli_level, _, _ = await stoned_current_state("eli")
-    stoned_line = stoned_narration_for(tim_level, tim_method)
+    # Reactions don't have typed text, so we can't infer Tim's level fresh
+    # — inherit the latest inferred value from his most recent message row.
+    latest_tim = await db.fetch_one(
+        "SELECT stoned_level_tim FROM messages WHERE session_id = ? "
+        "AND sender = 'tim' ORDER BY id DESC LIMIT 1",
+        (session_id,),
+    )
+    tim_level = int(latest_tim["stoned_level_tim"] or 0) if latest_tim else 0
+    eli_level, eli_method, _ = await stoned_current_state("eli")
+    stoned_line = eli_state_directive(eli_level, eli_method)
 
     await db.execute(
         """UPDATE messages
@@ -845,6 +1044,7 @@ async def _process_reaction_body(
         )
     if mood:
         await manager.broadcast({"type": "mood", "mood": mood})
+        _mark_full_scene_mood(mood)
     await _broadcast_cost(session_id)
 
     if scene_desc or oneliner or stoned_line:
@@ -902,11 +1102,21 @@ def _format_short_date(iso_ts: str) -> str:
 def _message_to_payload(msg_row: dict[str, Any]) -> dict[str, Any]:
     segments_raw = msg_row.get("segments_json")
     segments: list[dict[str, str]] = []
+    extra_photos: list[str] = []
     if segments_raw:
         try:
             parsed = json.loads(segments_raw)
+            # Legacy shape: a bare list of segment dicts.
             if isinstance(parsed, list):
                 segments = parsed
+            # New shape: dict with optional "segments" + "extra_photos".
+            elif isinstance(parsed, dict):
+                segs = parsed.get("segments")
+                if isinstance(segs, list):
+                    segments = segs
+                extras = parsed.get("extra_photos")
+                if isinstance(extras, list):
+                    extra_photos = [u for u in extras if isinstance(u, str)]
         except (json.JSONDecodeError, TypeError):
             pass
     return {
@@ -923,6 +1133,8 @@ def _message_to_payload(msg_row: dict[str, Any]) -> dict[str, Any]:
         "trivia": msg_row.get("trivia"),
         "latency_ms": msg_row.get("latency_ms"),
         "timestamp": msg_row.get("timestamp"),
+        "frame_path": msg_row.get("frame_path"),
+        "extra_photos": extra_photos,
     }
 
 
@@ -934,6 +1146,10 @@ async def _build_session_snapshot() -> dict[str, Any]:
     all_settings.pop("password_hash", None)
 
     today_cost = await db.get_today_cost()
+    # Eli's current ingestion state — drives the quick-popover highlight on
+    # the chat-side leaf indicator. Reads the latest event from the DB so
+    # the UI is correct even on a fresh page load.
+    eli_level, eli_method, _ = await stoned_current_state("eli")
     snapshot: dict[str, Any] = {
         "type": "snapshot",
         "session": None,
@@ -949,6 +1165,7 @@ async def _build_session_snapshot() -> dict[str, Any]:
         "plex_unreachable": plex_monitor.is_unreachable(),
         "standby": _standby_active,
         "away": _away_active,
+        "eli_ingestion": {"level": eli_level, "method": eli_method},
     }
 
     if active:
@@ -1215,6 +1432,14 @@ async def _finalize_session(session_id: str) -> None:
     finally:
         await db.end_session(session_id)
         _reinforcement_counters.pop(session_id, None)
+        # Wipe any live-photo / live-audio uploads from this session — disposable.
+        for media_dir in (settings.live_photos_dir, settings.live_audio_dir):
+            try:
+                session_media_dir = Path(media_dir) / session_id
+                if session_media_dir.exists():
+                    await asyncio.to_thread(shutil.rmtree, session_media_dir, True)
+            except Exception:
+                log.exception("live-media cleanup failed for %s in %s", session_id, media_dir)
         await manager.broadcast(await _build_session_snapshot())
 
 
@@ -1355,7 +1580,7 @@ async def api_away(request: Request, _auth: dict = Depends(require_auth)):
         plex = plex_monitor.current_state()
         _away_plex_offset_ms = int(plex.get("view_offset_ms") or 0) if plex else 0
         if active:
-            await db.add_message(active["id"], "system", "⏸ Away · " + _away_entered_at.astimezone().strftime("%-I:%M %p") if hasattr(_away_entered_at, "astimezone") else "⏸ Away")
+            await db.add_message(active["id"], "system", "⏸ Away")
             row = await db.fetch_one(
                 "SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1",
                 (active["id"],),
@@ -1430,19 +1655,31 @@ async def api_log_ingestion(request: Request, _auth: dict = Depends(require_auth
     body = await request.json()
     who = body.get("who")
     method = body.get("method")
-    if who not in ("tim", "eli") or method not in ("smoke", "edible", "dab", "sober"):
+    # Tim no longer has a tracker (his body handles his own state); only
+    # Eli's ingestion is logged now. Reject Tim requests but stay quiet for
+    # any stale frontend that still sends them.
+    if who not in ("eli",) or method not in ("smoke", "edible", "dab", "sober"):
         raise HTTPException(status_code=400, detail="Invalid ingestion payload")
     active = await db.get_active_session()
     session_id = active["id"] if active else None
-    await db.log_ingestion(session_id, who, method)
-    await manager.broadcast({"type": "ingestion", "who": who, "method": method})
+    # Stacking behavior: each non-sober tap = current Eli level + 1 (cap 3).
+    # Sober resets to 0. Timer always resets to "now."
+    if method == "sober":
+        new_peak: Optional[int] = 0
+    else:
+        from stoned_tracker import MAX_LEVEL
+        cur_level, _, _ = await stoned_current_state("eli")
+        new_peak = max(1, min(MAX_LEVEL, cur_level + 1))
+    await db.log_ingestion(session_id, who, method, peak_level=new_peak)
+    await manager.broadcast({
+        "type": "ingestion", "who": who, "method": method, "peak_level": new_peak,
+    })
 
-    # Post a first-person ingestion emote to chat (and let Eli react) for
-    # either Tim's or Eli's ingestion, during an active session, excluding
-    # "sober" reset taps. The narration is always from Tim's POV — his own
-    # action for Tim's tap, Tim passing it to Eli for Eli's tap.
+    # Post a Tim-POV ingestion emote to chat (Tim passing it to Eli with her
+    # reaction folded in) for Eli's non-sober taps. Sober taps reset the
+    # tracker silently.
     if session_id and method != "sober":
-        narration = ingestion_narration(method, who=who)
+        narration = ingestion_narration(method, who="eli")
         if narration:
             content = f"_(*{narration}*)_"
             msg_id = await db.add_message(session_id, "tim", content)
@@ -1461,7 +1698,7 @@ async def api_log_ingestion(request: Request, _auth: dict = Depends(require_auth
                 _process_tim_message(msg_id, session_id, user_initiated=False)
             )
 
-    return JSONResponse({"logged": True})
+    return JSONResponse({"logged": True, "peak_level": new_peak})
 
 
 @app.post("/api/message")
@@ -1546,6 +1783,190 @@ async def api_health(_auth: dict = Depends(require_auth)):
     )
 
 
+@app.get("/api/movie-trivia/categories")
+async def api_movie_trivia_categories(_auth: dict = Depends(require_auth)):
+    """Static metadata for the X-Ray menu — category list with display
+    properties. Subject lists and counts come from /api/movie-trivia/topics.
+    """
+    from gemini_brain import MOVIE_TRIVIA_CATEGORIES, AWARDS_CEREMONIES
+    return JSONResponse({
+        "categories": [
+            {
+                "id": k,
+                "label": v["label"],
+                "icon": v["icon"],
+                "has_subpage": bool(v.get("has_subpage")),
+                "movie_wide_only": bool(v.get("movie_wide_only")),
+            }
+            for k, v in MOVIE_TRIVIA_CATEGORIES.items()
+        ],
+        "awards_ceremonies": list(AWARDS_CEREMONIES),
+    })
+
+
+@app.post("/api/movie-trivia/topics")
+async def api_movie_trivia_topics(request: Request, _auth: dict = Depends(require_auth)):
+    """Populate the X-Ray sub-page subject lists. Always uses the current
+    scene clip so the menu reflects what's on screen right now. Categories
+    flagged `movie_wide_only` (Awards, Connections) ignore the clip internally.
+    """
+    active = await db.get_active_session()
+    if not active:
+        raise HTTPException(status_code=400, detail="No active session")
+
+    plex = plex_monitor.current_state()
+    title = (plex.get("title") or "").strip() if plex else ""
+    year = plex.get("year") if plex else None
+    if not title:
+        raise HTTPException(status_code=400, detail="No movie currently detected on Plex")
+
+    clip_path: Optional[Path] = None
+    timestamp_label = ""
+    if plex.get("part_key"):
+        view_offset_ms = int(plex.get("view_offset_ms") or 0)
+        view_offset_sec = view_offset_ms / 1000.0
+        timestamp_label = _format_hms(view_offset_ms)
+        stream_url = build_stream_url(plex["part_key"])
+        try:
+            clip_path = await extract_clip(stream_url, view_offset_sec, 12)
+        except FFmpegNotFound:
+            log.warning("ffmpeg unavailable for X-Ray topics — falling back to movie-wide")
+        except FFmpegError as e:
+            log.warning("X-Ray topics clip extraction failed (%s) — falling back", type(e).__name__)
+
+    try:
+        result = await gemini_brain.generate_scene_topics(
+            movie_title=title, year=year,
+            scene_clip=clip_path, timestamp_label=timestamp_label,
+        )
+    except Exception:
+        log.exception("topics generation failed")
+        raise HTTPException(status_code=500, detail="Topic extraction failed")
+    finally:
+        if clip_path and clip_path.exists():
+            try:
+                clip_path.unlink()
+            except OSError:
+                pass
+
+    await _broadcast_cost(active["id"])
+    return JSONResponse({
+        "topics": result.get("topics", {}),
+        "timestamp": timestamp_label or None,
+    })
+
+
+@app.post("/api/movie-trivia")
+async def api_movie_trivia(request: Request, _auth: dict = Depends(require_auth)):
+    """X-Ray trivia card fetch. Always uses the current scene context UNLESS
+    the category is flagged `movie_wide_only` (Awards, Connections), in
+    which case the clip is skipped.
+
+    Body: {
+      category: str,                    # required, one of MOVIE_TRIVIA_CATEGORIES
+      subject?: str,                    # optional — for sub-page picks
+      subject_subtitle?: str,           # optional — paren text like "Captain Sheldon"
+    }
+    """
+    active = await db.get_active_session()
+    if not active:
+        raise HTTPException(status_code=400, detail="No active session")
+    session_id = active["id"]
+    body = await request.json()
+    category = (body.get("category") or "").strip()
+    subject = (body.get("subject") or "").strip() or None
+    subject_subtitle = (body.get("subject_subtitle") or "").strip() or None
+    from gemini_brain import MOVIE_TRIVIA_CATEGORIES
+    if category not in MOVIE_TRIVIA_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Unknown category: {category}")
+    meta = MOVIE_TRIVIA_CATEGORIES[category]
+    # Movie-wide-only categories skip the clip entirely.
+    use_scene_clip = not meta.get("movie_wide_only")
+
+    plex = plex_monitor.current_state()
+    title = (plex.get("title") or "").strip() if plex else ""
+    year = plex.get("year") if plex else None
+    if not title:
+        raise HTTPException(status_code=400, detail="No movie currently detected on Plex")
+
+    recent_rows = await db.fetch_all(
+        "SELECT trivia FROM messages WHERE session_id = ? "
+        "AND trivia IS NOT NULL AND trivia != '' "
+        "ORDER BY id DESC LIMIT 12",
+        (session_id,),
+    )
+    recent_trivia = [r["trivia"] for r in recent_rows if r["trivia"]]
+
+    clip_path: Optional[Path] = None
+    timestamp_label = ""
+    if use_scene_clip and plex.get("part_key"):
+        view_offset_ms = int(plex.get("view_offset_ms") or 0)
+        view_offset_sec = view_offset_ms / 1000.0
+        timestamp_label = _format_hms(view_offset_ms)
+        stream_url = build_stream_url(plex["part_key"])
+        try:
+            clip_path = await extract_clip(stream_url, view_offset_sec, 12)
+        except FFmpegNotFound:
+            log.warning("ffmpeg unavailable for X-Ray card — falling back to text-only")
+        except FFmpegError as e:
+            log.warning("X-Ray card clip extraction failed (%s) — falling back", type(e).__name__)
+
+    try:
+        result = await gemini_brain.generate_category_trivia(
+            movie_title=title, year=year, category=category,
+            subject=subject, subject_subtitle=subject_subtitle,
+            recent_trivia=recent_trivia,
+            scene_clip=clip_path,
+            timestamp_label=timestamp_label,
+        )
+    except Exception:
+        log.exception("category trivia generation failed")
+        raise HTTPException(status_code=500, detail="Trivia generation failed")
+    finally:
+        if clip_path and clip_path.exists():
+            try:
+                clip_path.unlink()
+            except OSError:
+                pass
+
+    trivia_text = (result.get("trivia") or "").strip()
+    if not trivia_text:
+        raise HTTPException(status_code=502, detail="Trivia came back empty")
+    chosen_label = result.get("label") or meta["label"]
+
+    # Card label combines category with the picked subject when present.
+    if subject:
+        display_label = f"{chosen_label} · {subject}"
+    else:
+        display_label = chosen_label
+
+    msg_id = await db.add_message(
+        session_id,
+        "category_trivia",
+        display_label,
+        trivia=trivia_text,
+        scene_context=json.dumps({
+            "category": category,
+            "label": chosen_label,
+            "subject": subject,
+            "subject_subtitle": subject_subtitle,
+            "scene_scoped": bool(result.get("scene_scoped")),
+            "timestamp": timestamp_label or None,
+        }),
+        latency_ms=result.get("latency_ms"),
+    )
+    row = await db.fetch_one("SELECT * FROM messages WHERE id = ?", (msg_id,))
+    if row:
+        await manager.broadcast(
+            {"type": "message", "message": _message_to_payload(row_to_dict(row) or {})}
+        )
+    await _broadcast_cost(session_id)
+    # Trivia interaction — give the mood ticker a chance to refresh now,
+    # bypassing its cadence dedup so Tim sees up-to-date theming.
+    asyncio.create_task(_maybe_tick_mood(force=True))
+    return JSONResponse({"id": msg_id, "trivia": trivia_text})
+
+
 @app.post("/api/reaction")
 async def api_send_reaction(request: Request, _auth: dict = Depends(require_auth)):
     """Store a reaction and generate a contextual one-liner in the background."""
@@ -1562,6 +1983,388 @@ async def api_send_reaction(request: Request, _auth: dict = Depends(require_auth
     await manager.broadcast({"type": "message", "message": payload})
     asyncio.create_task(_process_reaction(msg_id, active["id"], emoji, label))
     return JSONResponse({"id": msg_id})
+
+
+_PHOTO_EXT_BY_MIME = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/heic": "heic",
+    "image/heif": "heif",
+}
+
+
+@app.post("/api/live-photo")
+async def api_live_photo(
+    photos: list[UploadFile] = File(...),
+    caption: str = Form(""),
+    _auth: dict = Depends(require_auth),
+):
+    """Tim shares one or more photos with Eli, optionally with a caption.
+
+    Each file is saved to data/live_photos/{session_id}/{uuid}.{ext}, then a
+    background pipeline analyzes them all together with Gemini Pro and relays
+    the dual-focus narration + photo URLs to Kindroid. Files are wiped on
+    session finalize — they're disposable.
+    """
+    active = await db.get_active_session()
+    if not active:
+        raise HTTPException(status_code=400, detail="No active session")
+    if not photos:
+        raise HTTPException(status_code=400, detail="No photos uploaded")
+    session_id = active["id"]
+
+    photo_dir = Path(settings.live_photos_dir) / session_id
+    photo_dir.mkdir(parents=True, exist_ok=True)
+
+    saved: list[tuple[Path, str, str]] = []  # (path, mime, public_url)
+    for photo in photos:
+        mime = (photo.content_type or "image/jpeg").lower()
+        if not mime.startswith("image/"):
+            raise HTTPException(status_code=415, detail=f"Unsupported media type: {mime}")
+        ext = _PHOTO_EXT_BY_MIME.get(mime, "jpg")
+        filename = f"{uuid.uuid4().hex}.{ext}"
+        file_path = photo_dir / filename
+        contents = await photo.read()
+        await asyncio.to_thread(file_path.write_bytes, contents)
+        url = f"{settings.public_base_url.rstrip('/')}/photos/{session_id}/{filename}"
+        saved.append((file_path, mime, url))
+
+    # The placeholder bubble shows the first photo as a thumbnail; the rest
+    # will appear when the pipeline finishes (we update the bubble's
+    # attachment list via segments_json metadata).
+    first_url = saved[0][2]
+    placeholder = "📸 (sharing a photo…)" if len(saved) == 1 else f"📸 (sharing {len(saved)} photos…)"
+    msg_id = await db.add_message(
+        session_id, "tim", placeholder, frame_path=first_url,
+    )
+    # Store the full attachment list in segments_json so it survives reloads.
+    # Frontend renders one <img> per URL; the wrapped narration text will be
+    # added by the background processor once Gemini returns.
+    extra_urls = [u for (_, _, u) in saved[1:]]
+    if extra_urls:
+        await db.execute(
+            "UPDATE messages SET segments_json = ? WHERE id = ?",
+            (json.dumps({"extra_photos": extra_urls}), msg_id),
+        )
+    row = await db.fetch_one("SELECT * FROM messages WHERE id = ?", (msg_id,))
+    if row:
+        await manager.broadcast(
+            {"type": "message", "message": _message_to_payload(row_to_dict(row) or {})}
+        )
+
+    asyncio.create_task(
+        _process_live_photo(msg_id, session_id, saved, caption)
+    )
+    # Photo interaction — refresh the mood now (Tim engaged with the app).
+    asyncio.create_task(_maybe_tick_mood(force=True))
+    return JSONResponse({"id": msg_id, "urls": [u for (_, _, u) in saved]})
+
+
+async def _build_background_movie_context(session_id: str) -> str:
+    """Lightweight 'what's playing' summary for live photo/audio pipelines —
+    title + the most recent scene description we already have on file. No
+    fresh Plex clip extraction (this is meant to be cheap and background-only).
+    """
+    plex = plex_monitor.current_state()
+    parts: list[str] = []
+    title = (plex.get("display_title") or plex.get("title") or "").strip() if plex else ""
+    if title:
+        year = plex.get("year") if plex else None
+        if year and "(" not in title:
+            parts.append(f"Currently playing: {title} ({year})")
+        else:
+            parts.append(f"Currently playing: {title}")
+        if plex.get("view_offset_ms"):
+            parts.append(f"Playhead: {_format_hms(plex['view_offset_ms'])}")
+    last_scene = await db.fetch_one(
+        "SELECT scene_context, mood FROM messages "
+        "WHERE session_id = ? AND scene_context IS NOT NULL AND scene_context != '' "
+        "ORDER BY id DESC LIMIT 1",
+        (session_id,),
+    )
+    if last_scene:
+        sc = (last_scene["scene_context"] or "").strip()
+        if sc:
+            # Keep it short — this is background, not foreground.
+            if len(sc) > 600:
+                sc = sc[:600].rstrip() + "…"
+            parts.append(f"Most recent scene: {sc}")
+        mood = (last_scene["mood"] or "").strip()
+        if mood:
+            parts.append(f"Mood: {mood}")
+    return "\n".join(parts)
+
+
+_AUDIO_EXT_BY_MIME = {
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+    "audio/mp4": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/flac": "flac",
+}
+
+
+@app.post("/api/live-audio")
+async def api_live_audio(
+    audio: UploadFile = File(...),
+    caption: str = Form(""),
+    _auth: dict = Depends(require_auth),
+):
+    """Tim records a voice note while watching and sends it to Eli.
+    Optional `caption` is Tim's typed text accompanying the recording;
+    it goes to Kindroid as his spoken dialog after the audio emotes.
+
+    Same disposable-storage model as photos: saved to
+    data/live_audio/{session_id}/{uuid}.{ext}, Gemini Pro transcribes,
+    transcript + caption together go to Kindroid as Tim's spoken dialogue,
+    files wiped on session finalize.
+    """
+    active = await db.get_active_session()
+    if not active:
+        raise HTTPException(status_code=400, detail="No active session")
+    session_id = active["id"]
+
+    mime = (audio.content_type or "audio/webm").lower().split(";")[0].strip()
+    ext = _AUDIO_EXT_BY_MIME.get(mime, "webm")
+    if not mime.startswith("audio/"):
+        raise HTTPException(status_code=415, detail=f"Unsupported media type: {mime}")
+
+    audio_dir = Path(settings.live_audio_dir) / session_id
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    file_path = audio_dir / filename
+    contents = await audio.read()
+    await asyncio.to_thread(file_path.write_bytes, contents)
+
+    audio_url = f"{settings.public_base_url.rstrip('/')}/audio/{session_id}/{filename}"
+
+    placeholder = "🎙 (transcribing voice note…)"
+    msg_id = await db.add_message(
+        session_id, "tim", placeholder, frame_path=audio_url,
+    )
+    row = await db.fetch_one("SELECT * FROM messages WHERE id = ?", (msg_id,))
+    if row:
+        await manager.broadcast(
+            {"type": "message", "message": _message_to_payload(row_to_dict(row) or {})}
+        )
+
+    asyncio.create_task(
+        _process_live_audio(msg_id, session_id, file_path, audio_url, mime, caption)
+    )
+    # Audio interaction — refresh the mood now (Tim engaged with the app).
+    asyncio.create_task(_maybe_tick_mood(force=True))
+    return JSONResponse({"id": msg_id, "url": audio_url})
+
+
+async def _process_live_audio(
+    msg_id: int,
+    session_id: str,
+    file_path: Path,
+    audio_url: str,
+    mime: str,
+    caption: str = "",
+) -> None:
+    """Background: Gemini Pro transcribes audio, transcript → Kindroid as dialogue."""
+    log.info("live-audio pipeline START msg_id=%s session=%s mime=%s",
+             msg_id, session_id, mime)
+    if _pipeline_paused():
+        log.warning("live-audio pipeline ABORTED — pipeline paused")
+        return
+    await manager.broadcast({"type": "eli_typing", "on": True})
+    try:
+        try:
+            movie_context = await _build_background_movie_context(session_id)
+        except Exception:
+            log.exception("live-audio movie_context build failed — proceeding without it")
+            movie_context = ""
+        try:
+            log.info("live-audio calling Gemini analyze_live_audio…")
+            result = await gemini_brain.analyze_live_audio(
+                file_path, mime_type=mime, movie_context=movie_context,
+            )
+            log.info("live-audio Gemini OK — transcript=%d chars", len((result.get("transcript") or "")))
+        except Exception:
+            log.exception("live-audio Gemini analyze_live_audio CRASHED")
+            await db.add_message(session_id, "system", "Voice note transcription failed — see server logs.")
+            return
+
+        tim_speech = (result.get("tim_speech") or "").strip()
+        ambient_emote = (result.get("ambient_emote") or "").strip()
+        # Defensive strip — Gemini may include wrappers despite the prompt.
+        if ambient_emote.startswith("_(*") and ambient_emote.endswith("*)_"):
+            ambient_emote = ambient_emote[3:-3].strip()
+        if not tim_speech and not ambient_emote:
+            log.warning("live-audio Gemini returned empty in both fields")
+            await db.add_message(session_id, "system", "Voice note analysis returned nothing.")
+            return
+
+        # Build the bubble: emote(s) first, then any spoken text. Tim's
+        # transcribed voice and his typed caption both render as spoken
+        # segments after the ambient emote.
+        caption_text = (caption or "").strip()
+        segments_list: list[dict[str, str]] = []
+        content_parts: list[str] = []
+        if ambient_emote:
+            segments_list.append({"type": "emote", "text": ambient_emote})
+            content_parts.append(f"_(*{ambient_emote}*)_")
+        if tim_speech:
+            segments_list.append({"type": "spoken", "text": tim_speech})
+            content_parts.append(tim_speech)
+        if caption_text:
+            segments_list.append({"type": "spoken", "text": caption_text})
+            content_parts.append(caption_text)
+        content_combined = "\n\n".join(content_parts)
+        segments_payload = {"segments": segments_list}
+
+        await db.execute(
+            "UPDATE messages SET content = ?, segments_json = ?, latency_ms = ? WHERE id = ?",
+            (content_combined, json.dumps(segments_payload), result.get("latency_ms"), msg_id),
+        )
+        updated = await db.fetch_one("SELECT * FROM messages WHERE id = ?", (msg_id,))
+        if updated:
+            await manager.broadcast(
+                {"type": "message_updated", "message": _message_to_payload(row_to_dict(updated) or {})}
+            )
+        # Combine transcript + caption into one typed_dialogue chunk for
+        # Kindroid — they're both Tim's spoken contribution.
+        dialogue_parts = [t for t in (tim_speech, caption_text) if t]
+        kindroid_dialogue = "\n\n".join(dialogue_parts)
+        log.info(
+            "live-audio relaying to Kindroid — ambient=%d chars, dialogue=%d chars (transcript=%d + caption=%d)",
+            len(ambient_emote), len(kindroid_dialogue), len(tim_speech), len(caption_text),
+        )
+        await _send_to_kindroid_and_render(
+            session_id,
+            scene_narration="",
+            history_narrative="",
+            stoned_line="",
+            reaction_narration=ambient_emote,
+            typed_dialogue=kindroid_dialogue,
+            mood=None,
+        )
+        log.info("live-audio pipeline DONE msg_id=%s", msg_id)
+    except Exception:
+        log.exception("live-audio pipeline CRASHED (outer)")
+        try:
+            await db.add_message(session_id, "system", "Audio pipeline crashed — see server logs.")
+        except Exception:
+            pass
+    finally:
+        await manager.broadcast({"type": "eli_typing", "on": False})
+
+
+async def _process_live_photo(
+    msg_id: int,
+    session_id: str,
+    saved: list[tuple[Path, str, str]],
+    caption: str,
+) -> None:
+    """Background: Gemini Pro vision analyzes one or more photos + caption,
+    produces a dual-focus narration (photo + movie background), then relays
+    to Kindroid with all photo URLs attached.
+
+    `saved` is a list of (file_path, mime_type, public_url) tuples.
+    """
+    photo_urls = [u for (_, _, u) in saved]
+    log.info("live-photo pipeline START msg_id=%s session=%s photos=%d caption=%d chars",
+             msg_id, session_id, len(saved), len(caption))
+    if _pipeline_paused():
+        log.warning("live-photo pipeline ABORTED — pipeline paused (standby=%s away=%s)",
+                    _standby_active, _away_active)
+        return
+    await manager.broadcast({"type": "eli_typing", "on": True})
+    try:
+        try:
+            movie_context = await _build_background_movie_context(session_id)
+            log.info("live-photo movie_context built (%d chars)", len(movie_context))
+        except Exception:
+            log.exception("live-photo movie_context build failed — proceeding without it")
+            movie_context = ""
+
+        try:
+            log.info("live-photo calling Gemini analyze_live_photo for %d image(s)…", len(saved))
+            result = await gemini_brain.analyze_live_photo(
+                [(p, m) for (p, m, _) in saved],
+                caption=caption,
+                movie_context=movie_context,
+            )
+            log.info("live-photo Gemini OK — narration=%d chars, latency=%sms",
+                     len((result.get("narration") or "")), result.get("latency_ms"))
+        except Exception:
+            log.exception("live-photo Gemini analyze_live_photo CRASHED")
+            await db.add_message(session_id, "system", "Photo analysis failed — see server logs.")
+            return
+
+        narration = (result.get("narration") or "").strip()
+        # Defensive: strip outer wrappers if Gemini included them despite
+        # instructions. The wrapper-add step below assumes raw inner text.
+        if narration.startswith("_(*") and narration.endswith("*)_"):
+            narration = narration[3:-3].strip()
+        if not narration:
+            log.warning("live-photo Gemini returned empty narration")
+            await db.add_message(session_id, "system", "Photo analysis returned nothing.")
+            return
+
+        # Split the dual-focus narration into separate emote blocks. Gemini
+        # was told to use a single blank line as the paragraph separator.
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", narration) if p.strip()]
+        # Append the user's typed caption as a spoken segment so it shows
+        # in the bubble below the photo emotes (and goes to Kindroid as
+        # typed_dialogue rather than getting woven into the emote text).
+        caption_text = (caption or "").strip()
+        segments_list = [{"type": "emote", "text": p} for p in paragraphs]
+        wrapped_parts = [f"_(*{p}*)_" for p in paragraphs]
+        if caption_text:
+            segments_list.append({"type": "spoken", "text": caption_text})
+            wrapped_parts.append(caption_text)
+        wrapped = "\n".join(wrapped_parts)
+        # segments_json holds the parsed segments PLUS the extra-photo URL
+        # list so the bubble can render all attachments on snapshot reload.
+        extras_meta = {"extra_photos": photo_urls[1:]} if len(photo_urls) > 1 else {}
+        segments_payload = {
+            "segments": segments_list,
+            **extras_meta,
+        }
+        await db.execute(
+            "UPDATE messages SET content = ?, segments_json = ?, latency_ms = ? WHERE id = ?",
+            (wrapped, json.dumps(segments_payload), result.get("latency_ms"), msg_id),
+        )
+        updated = await db.fetch_one("SELECT * FROM messages WHERE id = ?", (msg_id,))
+        if updated:
+            await manager.broadcast(
+                {"type": "message_updated", "message": _message_to_payload(row_to_dict(updated) or {})}
+            )
+        log.info(
+            "live-photo relaying to Kindroid — %d image_url(s), caption=%d chars",
+            len(photo_urls), len(caption_text),
+        )
+        # Photo emotes + photo URLs go in the emote slot; caption is Tim's
+        # spoken dialog after the emotes.
+        await _send_to_kindroid_and_render(
+            session_id,
+            scene_narration="",
+            history_narrative="",
+            stoned_line="",
+            reaction_narration=narration,
+            typed_dialogue=caption_text,
+            mood=None,
+            image_urls=photo_urls,
+        )
+        log.info("live-photo pipeline DONE msg_id=%s", msg_id)
+    except Exception:
+        log.exception("live-photo pipeline CRASHED (outer)")
+        try:
+            await db.add_message(session_id, "system", "Photo pipeline crashed — see server logs.")
+        except Exception:
+            pass
+    finally:
+        await manager.broadcast({"type": "eli_typing", "on": False})
 
 
 # ─── WebSocket ───────────────────────────────────────────────────────

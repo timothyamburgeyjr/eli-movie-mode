@@ -96,6 +96,15 @@ def _wrap_paragraphs_as_emotes(text: str) -> list[str]:
     return [f"_(*{p.strip()}*)_" for p in paragraphs if p.strip()]
 
 
+# Persistent formatting nudge prepended to every Kindroid payload. Tim
+# tested this exact wording and it locks Eli's emote drift down — keep
+# verbatim. The nested marker references inside are intentional and Eli
+# parses them correctly; do NOT rewrite.
+_FORMAT_DIRECTIVE_EMOTE = (
+    "_(* DIRECTIVE: All Emotes have to go inside the _(* TEXT *)_ notation *)_"
+)
+
+
 def build_payload(
     *,
     scene_narration: str = "",
@@ -106,12 +115,18 @@ def build_payload(
 ) -> str:
     """Assemble the Kindroid message body per our emote convention.
 
-    Each emote section becomes one or more `_(*...*)_` blocks — one per
-    paragraph — joined by newlines. Typed dialogue (if any) follows as
-    plain text after the emotes.
+    Order:
+      1. Format-directive emote (anti-drift reminder).
+      2. Stoned-state directive emote (telling Eli how SHE is feeling).
+      3. Scene / history / reaction emotes (one block per paragraph).
+      4. Typed dialogue, plain.
     """
-    lines: list[str] = []
-    for block in (scene_narration, history_narrative, stoned_narration, reaction_narration):
+    lines: list[str] = [_FORMAT_DIRECTIVE_EMOTE]
+    # Stoned directive (Eli's state) comes second so the formatting reminder
+    # is the very first thing, and Eli's altered-state framing is the
+    # second thing she sees — both before any scene/reaction content.
+    lines.extend(_wrap_paragraphs_as_emotes(stoned_narration or ""))
+    for block in (scene_narration, history_narrative, reaction_narration):
         lines.extend(_wrap_paragraphs_as_emotes(block or ""))
     body = "\n".join(lines)
     dialogue = (typed_dialogue or "").strip()
@@ -149,6 +164,11 @@ async def send_message(
     payload: dict[str, Any] = {
         "ai_id": settings.kindroid_ai_id,
         "message": message,
+        # CRITICAL: Kindroid's API now defaults to streaming (SSE). Without
+        # this flag we read only the first keepalive byte before the stream
+        # finishes and get a single space as the "reply." Always force a
+        # single buffered response.
+        "stream": False,
     }
     if image_urls:
         payload["image_urls"] = image_urls
@@ -204,6 +224,13 @@ async def send_message(
             # Some proxies or future versions may wrap it in JSON, so we try
             # JSON first and fall back to raw text.
             raw_body = response.text or ""
+            log.info(
+                "kindroid HTTP %s body_chars=%d body_preview=%r ct=%s",
+                response.status_code,
+                len(raw_body),
+                raw_body[:300],
+                response.headers.get("content-type", ""),
+            )
             api_payload: Any = None
             raw = raw_body
             try:
@@ -212,9 +239,16 @@ async def send_message(
                 data = None
             if isinstance(data, dict):
                 api_payload = data
+                log.info("kindroid JSON keys=%s", list(data.keys()))
                 extracted = _extract_reply_text(data)
                 if extracted:
                     raw = extracted
+                else:
+                    log.warning(
+                        "kindroid response JSON had no usable reply key; data=%r",
+                        {k: (v if not isinstance(v, str) or len(v) < 200 else v[:200] + "…")
+                         for k, v in data.items()},
+                    )
 
             emote_text, spoken_text, segments = parse_reply(raw)
             return {

@@ -110,6 +110,8 @@ class Database:
         await self.conn.executescript(SCHEMA)
         # Lightweight migrations for columns added after initial schema.
         await self._ensure_column("messages", "segments_json", "TEXT")
+        await self._ensure_column("movies", "mood", "TEXT")
+        await self._ensure_column("ingestion_events", "peak_level", "INTEGER")
         for key, value in DEFAULT_SETTINGS.items():
             await self.conn.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
@@ -265,10 +267,16 @@ class Database:
         )
 
     # ─── Ingestion ───
-    async def log_ingestion(self, session_id: Optional[str], who: str, method: str) -> None:
+    async def log_ingestion(
+        self,
+        session_id: Optional[str],
+        who: str,
+        method: str,
+        peak_level: Optional[int] = None,
+    ) -> None:
         await self.execute(
-            "INSERT INTO ingestion_events (session_id, who, method) VALUES (?, ?, ?)",
-            (session_id, who, method),
+            "INSERT INTO ingestion_events (session_id, who, method, peak_level) VALUES (?, ?, ?, ?)",
+            (session_id, who, method, peak_level),
         )
 
     async def get_latest_ingestion(self, who: str) -> Optional[aiosqlite.Row]:

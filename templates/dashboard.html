@@ -25,11 +25,21 @@
             --emote-color: #b8a0d8;
             --emote-bg: rgba(120, 80, 180, 0.06);
             --mood-dread: #8c1414;
+            --mood-horror: #6c1a40;
+            --mood-foreboding: #443060;
             --mood-tense: #3060b0;
-            --mood-humor: #b48c1e;
-            --mood-awe: #7040c0;
+            --mood-mystery: #5040a0;
             --mood-adrenaline: #c05020;
+            --mood-chaos: #a04060;
+            --mood-awe: #7040c0;
+            --mood-triumph: #d4a040;
+            --mood-humor: #b48c1e;
+            --mood-whimsy: #50b0a0;
+            --mood-romance: #c84878;
             --mood-cozy: #a08830;
+            --mood-serene: #6090a0;
+            --mood-melancholy: #4a6c8c;
+            --mood-bittersweet: #886c50;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -44,12 +54,22 @@
             position: fixed; inset: 0; pointer-events: none; z-index: 0;
             transition: box-shadow 3s ease, background 3s ease, opacity 1s ease;
         }
-        .mood-gradient[data-mood="dread"] { box-shadow: inset 0 0 250px 100px rgba(140,20,20,0.13); background: radial-gradient(ellipse at 50% 100%, rgba(100,10,10,0.06) 0%, transparent 70%); }
-        .mood-gradient[data-mood="tense"] { box-shadow: inset 0 0 250px 100px rgba(30,60,140,0.12); background: radial-gradient(ellipse at 50% 100%, rgba(20,40,100,0.06) 0%, transparent 70%); }
-        .mood-gradient[data-mood="humor"] { box-shadow: inset 0 0 250px 100px rgba(180,140,30,0.11); background: radial-gradient(ellipse at 50% 100%, rgba(140,110,20,0.05) 0%, transparent 70%); }
-        .mood-gradient[data-mood="awe"] { box-shadow: inset 0 0 250px 100px rgba(100,50,180,0.13); background: radial-gradient(ellipse at 50% 100%, rgba(80,30,150,0.06) 0%, transparent 70%); }
-        .mood-gradient[data-mood="adrenaline"] { box-shadow: inset 0 0 250px 100px rgba(200,80,20,0.12); background: radial-gradient(ellipse at 50% 100%, rgba(160,60,10,0.05) 0%, transparent 70%); }
-        .mood-gradient[data-mood="cozy"] { box-shadow: inset 0 0 250px 100px rgba(160,120,40,0.10); background: radial-gradient(ellipse at 50% 100%, rgba(130,100,30,0.05) 0%, transparent 70%); }
+        .mood-gradient[data-mood="dread"]       { box-shadow: inset 0 0 250px 100px rgba(140,20,20,0.13);  background: radial-gradient(ellipse at 50% 100%, rgba(100,10,10,0.06)  0%, transparent 70%); }
+        .mood-gradient[data-mood="horror"]      { box-shadow: inset 0 0 250px 100px rgba(108,26,64,0.14);  background: radial-gradient(ellipse at 50% 100%, rgba(80,15,48,0.07)   0%, transparent 70%); }
+        .mood-gradient[data-mood="foreboding"]  { box-shadow: inset 0 0 250px 100px rgba(68,48,96,0.13);   background: radial-gradient(ellipse at 50% 100%, rgba(48,32,72,0.07)   0%, transparent 70%); }
+        .mood-gradient[data-mood="tense"]       { box-shadow: inset 0 0 250px 100px rgba(30,60,140,0.12);  background: radial-gradient(ellipse at 50% 100%, rgba(20,40,100,0.06)  0%, transparent 70%); }
+        .mood-gradient[data-mood="mystery"]     { box-shadow: inset 0 0 250px 100px rgba(80,64,160,0.12);  background: radial-gradient(ellipse at 50% 100%, rgba(60,48,120,0.06)  0%, transparent 70%); }
+        .mood-gradient[data-mood="adrenaline"]  { box-shadow: inset 0 0 250px 100px rgba(200,80,20,0.12);  background: radial-gradient(ellipse at 50% 100%, rgba(160,60,10,0.05)  0%, transparent 70%); }
+        .mood-gradient[data-mood="chaos"]       { box-shadow: inset 0 0 250px 100px rgba(160,64,96,0.13);  background: radial-gradient(ellipse at 50% 100%, rgba(128,48,76,0.06)  0%, transparent 70%); }
+        .mood-gradient[data-mood="awe"]         { box-shadow: inset 0 0 250px 100px rgba(100,50,180,0.13); background: radial-gradient(ellipse at 50% 100%, rgba(80,30,150,0.06)  0%, transparent 70%); }
+        .mood-gradient[data-mood="triumph"]     { box-shadow: inset 0 0 250px 100px rgba(212,160,64,0.12); background: radial-gradient(ellipse at 50% 100%, rgba(180,130,48,0.06) 0%, transparent 70%); }
+        .mood-gradient[data-mood="humor"]       { box-shadow: inset 0 0 250px 100px rgba(180,140,30,0.11); background: radial-gradient(ellipse at 50% 100%, rgba(140,110,20,0.05) 0%, transparent 70%); }
+        .mood-gradient[data-mood="whimsy"]      { box-shadow: inset 0 0 250px 100px rgba(80,176,160,0.10); background: radial-gradient(ellipse at 50% 100%, rgba(60,140,128,0.05) 0%, transparent 70%); }
+        .mood-gradient[data-mood="romance"]     { box-shadow: inset 0 0 250px 100px rgba(200,72,120,0.12); background: radial-gradient(ellipse at 50% 100%, rgba(160,56,96,0.06)  0%, transparent 70%); }
+        .mood-gradient[data-mood="cozy"]        { box-shadow: inset 0 0 250px 100px rgba(160,120,40,0.10); background: radial-gradient(ellipse at 50% 100%, rgba(130,100,30,0.05) 0%, transparent 70%); }
+        .mood-gradient[data-mood="serene"]      { box-shadow: inset 0 0 250px 100px rgba(96,144,160,0.10); background: radial-gradient(ellipse at 50% 100%, rgba(72,112,128,0.05) 0%, transparent 70%); }
+        .mood-gradient[data-mood="melancholy"]  { box-shadow: inset 0 0 250px 100px rgba(74,108,140,0.11); background: radial-gradient(ellipse at 50% 100%, rgba(56,84,112,0.06)  0%, transparent 70%); }
+        .mood-gradient[data-mood="bittersweet"] { box-shadow: inset 0 0 250px 100px rgba(136,108,80,0.10); background: radial-gradient(ellipse at 50% 100%, rgba(108,84,60,0.05)  0%, transparent 70%); }
         .mood-gradient.standby { opacity: 0.15 !important; }
 
         /* ─── Start Screen ─── */
@@ -75,19 +95,89 @@
         .start-last-detail { font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; }
 
         /* ─── Header ─── */
-        .header { background: var(--bg-surface); border-bottom: 1px solid var(--border); padding: 10px 14px 8px; flex-shrink: 0; position: relative; z-index: 2; }
-        .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-        .header-left { display: flex; align-items: center; gap: 8px; }
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 6px var(--success); flex-shrink: 0; transition: background 0.4s, box-shadow 0.4s; }
-        .status-dot.standby { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
-        .status-dot.off { background: #444; box-shadow: none; }
-        .header-left h1 { font-size: 1rem; font-weight: 700; }
-        .status-label { font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 4px; transition: all 0.4s; }
-        .status-label.live { color: var(--success); background: rgba(34,197,94,0.1); }
-        .status-label.standby { color: var(--warning); background: rgba(245,158,11,0.15); }
-        .status-label.ended { color: #666; background: rgba(68,68,68,0.15); }
-        .status-label.idle { color: #666; background: rgba(68,68,68,0.15); }
-        .master-mood { display: flex; align-items: center; gap: 4px; margin-left: 4px; padding: 2px 8px; border-radius: 10px; transition: all 1s ease; }
+        .header { background: var(--bg-surface); border-bottom: 1px solid var(--border); padding: 10px 12px 8px; flex-shrink: 0; position: relative; z-index: 2; }
+        .header-top { display: flex; align-items: stretch; gap: 8px; margin-bottom: 8px; }
+
+        /* ─── Big top buttons ─── */
+        .big-btn {
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 10px;
+            min-height: 64px;
+            transition: all 0.25s ease;
+            position: relative;
+        }
+        .big-btn:hover { transform: translateY(-1px); }
+        .big-btn:active { transform: translateY(0); }
+        .big-btn-icon { font-size: 1.2rem; line-height: 1; }
+        .big-btn-label { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-secondary); }
+
+        /* Movie Mode button — wide, has 3 visual states (LIVE/AWAY/STANDBY) */
+        .movie-mode-btn { flex: 2.2 1 0; min-width: 0; gap: 10px; padding-left: 12px; padding-right: 10px; justify-content: flex-start; }
+        .movie-mode-btn .mm-icon-circle {
+            width: 36px; height: 36px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(34,197,94,0.12); border: 1px solid var(--success);
+            font-size: 1.1rem; flex-shrink: 0;
+            transition: all 0.4s ease;
+        }
+        .movie-mode-btn .mm-text { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
+        .movie-mode-btn .mm-title { font-size: 0.92rem; font-weight: 700; line-height: 1.1; }
+        .movie-mode-btn .mm-badge {
+            font-size: 0.6rem; font-weight: 700; letter-spacing: 0.06em;
+            color: var(--success); display: flex; align-items: center; gap: 4px;
+            transition: color 0.4s;
+        }
+        .movie-mode-btn .mm-badge::before { content: '●'; font-size: 0.7rem; }
+        /* LIVE — default green fallback; mood theming is applied via inline
+           styles in JS (applyMovieModeButtonState reads state.currentMood). */
+        .movie-mode-btn.live  { border-color: var(--success); background: rgba(34,197,94,0.06); box-shadow: 0 0 0 1px rgba(34,197,94,0.25); }
+        .movie-mode-btn.live  .mm-icon-circle { background: rgba(34,197,94,0.12); border-color: var(--success); color: var(--success); }
+        .movie-mode-btn.live  .mm-badge { color: var(--success); }
+        /* AWAY and STANDBY share the grey scheme — mood color is reserved
+           exclusively for the LIVE state. */
+        .movie-mode-btn.away,
+        .movie-mode-btn.standby { border-color: #555; background: rgba(120,120,135,0.05); box-shadow: none; }
+        .movie-mode-btn.away .mm-icon-circle,
+        .movie-mode-btn.standby .mm-icon-circle { background: rgba(120,120,135,0.15); border-color: #555; color: #888; }
+        .movie-mode-btn.away .mm-badge,
+        .movie-mode-btn.standby .mm-badge { color: #999; }
+        .movie-mode-btn.idle  .mm-icon-circle { background: rgba(80,80,90,0.15); border-color: #444; color: #666; }
+        .movie-mode-btn.idle  .mm-badge { color: #666; }
+
+        /* Plain header buttons (Standby, Settings) */
+        .header-btn { flex: 1 1 0; min-width: 0; flex-direction: column; gap: 4px; padding: 10px 6px; }
+        .header-btn .big-btn-icon { font-size: 1.3rem; }
+        .header-btn:hover { border-color: var(--accent); }
+        .header-btn:hover .big-btn-label { color: var(--text-primary); }
+        .header-btn.standby-active { background: rgba(245,158,11,0.12); border-color: var(--warning); }
+        .header-btn.standby-active .big-btn-icon { color: var(--warning); }
+        .header-btn.standby-active .big-btn-label { color: var(--warning); }
+
+        /* Stop button — bigger, red */
+        .stop-btn { flex: 1.5 1 0; min-width: 0; flex-direction: column; gap: 4px; padding: 10px 6px;
+            background: var(--danger); border-color: var(--danger); color: #fff;
+        }
+        .stop-btn .big-btn-label { color: #fff; }
+        .stop-btn:hover { background: #dc2626; border-color: #dc2626; }
+        .stop-btn.start  { background: var(--success); border-color: var(--success); }
+        .stop-btn.start:hover { background: #16a34a; border-color: #16a34a; }
+        .stop-btn.clear  { background: var(--bg-elevated); border-color: var(--text-muted); color: var(--text-muted); }
+        .stop-btn.clear .big-btn-label { color: var(--text-muted); }
+
+        .wake-indicator { font-size: 0.7rem; color: #444; transition: color 0.4s, text-shadow 0.4s; cursor: default; user-select: none; }
+        .wake-indicator.active { color: var(--success); text-shadow: 0 0 4px rgba(34,197,94,0.5); }
+        .wake-indicator.unsupported { display: none; }
+        /* Retired — mood is now baked into the Movie Mode button itself.
+           Element kept in the DOM so legacy references don't break. */
+        .master-mood { display: none; }
         .master-mood.hidden { display: none; }
         .master-mood-dot { width: 6px; height: 6px; border-radius: 50%; transition: background 1s; }
         .master-mood-label { font-size: 0.58rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; transition: color 1s; }
@@ -112,8 +202,76 @@
         .session-btn.clear:hover { background: var(--bg-elevated); color: var(--text-secondary); }
 
         .movie-bar { display: flex; align-items: center; gap: 8px; }
-        .movie-bar.empty .movie-poster { background: #222; }
-        .movie-poster { width: 28px; height: 40px; border-radius: 4px; background: #222; flex-shrink: 0; overflow: hidden; }
+        .movie-bar.empty .movie-poster { background: #222; cursor: default; }
+        .movie-poster { width: 28px; height: 40px; border-radius: 4px; background: #222; flex-shrink: 0; overflow: hidden; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; position: relative; }
+        .movie-poster:hover { transform: scale(1.06); box-shadow: 0 0 0 2px var(--accent); }
+        .movie-poster::after { content: '⋮'; position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.6rem; line-height: 12px; text-align: center; font-weight: 700; pointer-events: none; }
+        .movie-bar.empty .movie-poster::after { display: none; }
+        .movie-bar.empty .movie-poster:hover { transform: none; box-shadow: none; }
+        /* ─── X-Ray trivia menu ─── */
+        .poster-menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 80; display: none; }
+        .poster-menu-overlay.open { display: block; }
+        .poster-menu {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: var(--bg-surface); border: 1px solid var(--border);
+            border-radius: 16px; padding: 16px 16px 12px; z-index: 81;
+            width: min(440px, calc(100vw - 24px)); max-height: 85vh;
+            display: none; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+        }
+        .poster-menu.open { display: flex; }
+        .xray-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; min-height: 22px; }
+        .xray-back { background: none; border: none; color: var(--accent); font-size: 0.78rem; cursor: pointer; padding: 0; font-weight: 600; }
+        .xray-back:hover { color: var(--accent-hover); }
+        .poster-menu-close { background: none; border: none; color: var(--text-muted); font-size: 1.2rem; cursor: pointer; padding: 0; line-height: 1; margin-left: auto; }
+        .poster-menu-close:hover { color: var(--text-primary); }
+        .xray-title { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+        .xray-scene-window {
+            font-size: 0.66rem; color: var(--text-secondary);
+            margin-bottom: 4px; font-variant-numeric: tabular-nums;
+        }
+        .xray-scene-window.empty { display: none; }
+        .xray-subtitle { font-size: 0.68rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; }
+        .xray-loading { font-size: 0.75rem; color: var(--text-muted); padding: 32px 8px; text-align: center; }
+        .xray-categories, .xray-subjects { overflow-y: auto; flex: 1; min-height: 0; }
+        .xray-categories::-webkit-scrollbar, .xray-subjects::-webkit-scrollbar { width: 4px; }
+        .xray-categories::-webkit-scrollbar-thumb, .xray-subjects::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        .xray-cat-row {
+            display: flex; align-items: center; gap: 12px;
+            padding: 12px 14px; margin-bottom: 6px;
+            background: var(--bg-elevated); border: 1px solid var(--border);
+            border-radius: 12px; cursor: pointer; transition: all 0.15s;
+        }
+        .xray-cat-row.xray-surprise { background: rgba(99,102,241,0.10); border-color: var(--accent); margin-bottom: 10px; }
+        .xray-cat-row.xray-surprise .xray-cat-icon,
+        .xray-cat-row.xray-surprise .xray-cat-label { color: var(--accent); }
+        .xray-surprise-hint { background: transparent !important; border-color: var(--accent) !important; color: var(--accent) !important; }
+        .xray-subject-row.xray-surprise { background: rgba(99,102,241,0.10); border-color: var(--accent); margin-bottom: 10px; }
+        .xray-subject-row.xray-surprise .xray-subject-name { color: var(--accent); }
+        .xray-cat-row:hover:not(.disabled) { border-color: var(--accent); transform: translateX(2px); }
+        .xray-cat-row.disabled { opacity: 0.35; cursor: not-allowed; }
+        .xray-cat-icon { font-size: 1.3rem; line-height: 1; color: var(--accent); flex-shrink: 0; }
+        .xray-cat-label { flex: 1; font-size: 0.92rem; font-weight: 700; color: var(--text-primary); }
+        .xray-cat-row.disabled .xray-cat-label { color: var(--text-muted); }
+        .xray-cat-count {
+            font-size: 0.68rem; color: var(--text-muted);
+            padding: 3px 10px; border-radius: 12px;
+            background: var(--bg-surface); border: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .xray-cat-chevron { color: var(--text-muted); font-size: 0.9rem; flex-shrink: 0; }
+        .xray-subject-row {
+            display: flex; align-items: center; gap: 12px;
+            padding: 12px 14px; margin-bottom: 6px;
+            background: var(--bg-elevated); border: 1px solid var(--border);
+            border-radius: 12px; cursor: pointer; transition: all 0.15s;
+        }
+        .xray-subject-row:hover:not(.disabled) { border-color: var(--accent); transform: translateX(2px); }
+        .xray-subject-row.disabled { opacity: 0.35; cursor: not-allowed; }
+        .xray-subject-text { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; min-width: 0; }
+        .xray-subject-name { font-size: 0.92rem; font-weight: 700; color: var(--text-primary); }
+        .xray-subject-row.disabled .xray-subject-name { color: var(--text-muted); }
+        .xray-subject-subtitle { font-size: 0.74rem; color: var(--text-muted); font-weight: 400; }
+        .xray-footer { font-size: 0.6rem; color: var(--text-muted); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); text-align: center; }
         .movie-meta { flex: 1; min-width: 0; }
         .movie-title { font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .movie-sub { font-size: 0.68rem; color: var(--text-muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -146,8 +304,52 @@
         .msg-stoned { font-size: 0.45rem; display: flex; gap: 0; }
         .msg-stoned .leaf { opacity: 0.2; }
         .msg-stoned .leaf.on { opacity: 1; }
+        /* Eli leaves get a tap target — adds padding + cursor so it's hit-
+           able even at the small font size. */
+        .msg-stoned.tappable {
+            cursor: pointer; padding: 2px 4px; border-radius: 6px;
+            margin-left: 4px; transition: background 0.15s;
+            font-size: 0.65rem;
+        }
+        .msg-stoned.tappable:hover { background: rgba(99,102,241,0.15); }
+
+        /* ─── Eli ingestion popover ─── */
+        .ingestion-pop-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 80; display: none; }
+        .ingestion-pop-overlay.open { display: block; }
+        .ingestion-pop {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: var(--bg-surface); border: 1px solid var(--border);
+            border-radius: 16px; padding: 16px; z-index: 81;
+            width: min(360px, calc(100vw - 24px));
+            display: none; box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+        }
+        .ingestion-pop.open { display: block; }
+        .ingestion-pop-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .ingestion-pop-title { font-size: 1rem; font-weight: 700; color: var(--text-primary); }
+        .ingestion-pop-close { background: none; border: none; color: var(--text-muted); font-size: 1.2rem; cursor: pointer; padding: 0; line-height: 1; }
+        .ingestion-pop-close:hover { color: var(--text-primary); }
+        .ingestion-pop-subtitle { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; }
+        .ingestion-pop-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+        .ingestion-pop-btn {
+            display: flex; align-items: center; justify-content: center;
+            gap: 4px; padding: 14px 10px; border-radius: 10px;
+            background: var(--bg-elevated); border: 1px solid var(--border);
+            color: var(--text-primary); cursor: pointer; transition: all 0.15s;
+            font-size: 0.85rem; font-weight: 600;
+        }
+        .ingestion-pop-btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+        .ingestion-pop-btn:active { transform: translateY(0); }
+        .ingestion-pop-btn.current {
+            background: rgba(99,102,241,0.18); border-color: var(--accent); color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(99,102,241,0.25);
+        }
+        .ingestion-pop-btn.current::after { content: ' ●'; font-size: 0.7rem; }
+        .ingestion-pop-sober { grid-column: 1 / -1; }  /* full-width row */
         .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; font-size: 0.9rem; line-height: 1.5; word-wrap: break-word; }
         .msg.user { background: var(--user-bubble); border-bottom-right-radius: 4px; }
+        .live-photo { display: block; max-width: 100%; max-height: 280px; margin-top: 6px; border-radius: 8px; cursor: pointer; object-fit: cover; }
+        .live-audio { display: block; width: 100%; margin-top: 6px; }
+        @keyframes rec-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.6); } 50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } }
         .msg.eli { background: var(--eli-bubble); border-bottom-left-radius: 4px; }
         .msg.system { align-self: center; background: transparent; color: var(--system-color); font-size: 0.75rem; font-style: italic; padding: 5px 0; max-width: 100%; }
         .msg.system.standby-msg { color: var(--warning); }
@@ -170,9 +372,17 @@
         .context-header .arrow.open { transform: rotate(90deg); }
         .context-body { display: none; padding: 0 12px 10px; font-size: 0.8rem; line-height: 1.55; color: #8888aa; font-style: italic; }
         .context-body.open { display: block; }
-        .trivia-card { max-width: 92%; margin: 2px 0; background: linear-gradient(135deg, #14120e, #181410); border: 1px solid #2a2518; border-left: 3px solid #c4a860; border-radius: 8px; padding: 8px 12px; font-size: 0.78rem; line-height: 1.5; color: #c4a860; }
+        .category-trivia-label { font-size: 0.58rem; font-weight: 700; letter-spacing: 0.1em; color: #c4a860; margin: 8px 0 2px; opacity: 0.7; }
+        .category-trivia-label.scene-scoped { color: var(--accent); opacity: 0.9; }
+        .trivia-card { max-width: 92%; margin: 2px 0; background: linear-gradient(135deg, #14120e, #181410); border: 1px solid #2a2518; border-left: 3px solid #c4a860; border-radius: 8px; padding: 8px 12px; font-size: 0.78rem; line-height: 1.5; color: #c4a860; cursor: pointer; transition: background 0.15s, border-color 0.15s, opacity 0.3s; }
         .trivia-card::before { content: '🎬 '; }
+        .trivia-card:hover { background: linear-gradient(135deg, #1a1610, #1f1a12); border-left-color: #e0c270; }
+        .trivia-card:active { background: linear-gradient(135deg, #221c14, #271f15); }
         .trivia-card .trivia-source { display: block; font-size: 0.6rem; color: var(--text-muted); margin-top: 4px; font-style: italic; }
+        .trivia-card .trivia-share-hint { display: block; font-size: 0.6rem; color: #8a7340; margin-top: 2px; font-style: italic; opacity: 0.75; }
+        .trivia-card.shared { opacity: 0.5; cursor: default; }
+        .trivia-card.shared:hover { background: linear-gradient(135deg, #14120e, #181410); border-left-color: #c4a860; }
+        .trivia-card.shared .trivia-share-hint { color: var(--success); opacity: 1; }
         .briefing-card { align-self: stretch; background: linear-gradient(135deg, #12121e, #161628); border: 1px solid #252540; border-radius: 14px; padding: 16px; margin: 6px 0; }
         .briefing-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
         .briefing-poster { width: 50px; height: 74px; border-radius: 6px; background: #222; flex-shrink: 0; overflow: hidden; }
@@ -219,6 +429,43 @@
         /* ─── Connection banner ─── */
         .conn-banner { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: var(--warning); color: #000; padding: 6px 14px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: none; }
         .conn-banner.visible { display: block; }
+
+        /* ─── Verdict row (loved → hated) ─── */
+        .verdict-reactions { display: flex; gap: 6px; padding: 8px 14px 0; flex-shrink: 0; z-index: 1; }
+        .verdict-reactions.standby-dim { opacity: 0.25; pointer-events: none; }
+        .verdict-btn {
+            flex: 1 1 0;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            padding: 7px 6px;
+            border-radius: 10px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+            font-size: 0.7rem;
+            font-weight: 600;
+            line-height: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .verdict-btn .v-emoji { font-size: 1rem; line-height: 1; flex-shrink: 0; }
+        .verdict-btn .v-label { font-size: 0.65rem; }
+        .verdict-btn:hover { transform: scale(1.03); color: var(--text-primary); }
+        .verdict-btn:active { transform: scale(0.95); }
+        .verdict-btn.v-loved      { border-color: rgba(34,197,94,0.45);  background: rgba(34,197,94,0.08); color: #6ee087; }
+        .verdict-btn.v-loved:hover    { background: rgba(34,197,94,0.16); border-color: rgba(34,197,94,0.7); }
+        .verdict-btn.v-liked      { border-color: rgba(34,197,94,0.22);  background: rgba(34,197,94,0.04); color: #9ec9a8; }
+        .verdict-btn.v-liked:hover    { background: rgba(34,197,94,0.10); border-color: rgba(34,197,94,0.4); }
+        .verdict-btn.v-disliked   { border-color: rgba(239,68,68,0.22);  background: rgba(239,68,68,0.04); color: #c99898; }
+        .verdict-btn.v-disliked:hover { background: rgba(239,68,68,0.10); border-color: rgba(239,68,68,0.4); }
+        .verdict-btn.v-hated      { border-color: rgba(239,68,68,0.45);  background: rgba(239,68,68,0.08); color: #e87878; }
+        .verdict-btn.v-hated:hover    { background: rgba(239,68,68,0.16); border-color: rgba(239,68,68,0.7); }
 
         /* ─── Reactions ─── */
         .quick-reactions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px 0; flex-shrink: 0; z-index: 1; justify-content: space-between; }
@@ -301,7 +548,37 @@
         .emoji-pane-overlay.open { display: block; }
 
         /* ─── Input ─── */
-        .input-area { background: var(--bg-surface); border-top: 1px solid var(--border); padding: 10px 14px; display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0; z-index: 1; }
+        .input-area-wrap { background: var(--bg-surface); border-top: 1px solid var(--border); flex-shrink: 0; z-index: 1; }
+        .attachment-strip { display: flex; gap: 8px; padding: 8px 14px 0; flex-wrap: wrap; }
+        .attachment-strip.standby-dim { opacity: 0.3; pointer-events: none; }
+        .attach-chip { position: relative; width: 56px; height: 56px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: var(--bg-elevated); flex-shrink: 0; }
+        .attach-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .attach-chip-audio { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-color: var(--accent); background: rgba(99,102,241,0.08); }
+        .attach-chip-audio-icon { font-size: 1.1rem; line-height: 1; color: var(--accent); }
+        .attach-chip-audio-time { font-size: 0.6rem; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+        .attach-chip-remove {
+            position: absolute; top: -4px; right: -4px; width: 18px; height: 18px;
+            border-radius: 50%; background: var(--danger); border: 2px solid var(--bg-surface);
+            color: #fff; font-size: 0.65rem; font-weight: 700; line-height: 1;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; padding: 0;
+        }
+        .input-area { background: var(--bg-surface); padding: 10px 14px; display: flex; gap: 8px; align-items: stretch; flex-shrink: 0; z-index: 1; }
+        .media-btn {
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+            min-width: 56px; padding: 6px 8px; border-radius: 12px;
+            background: var(--bg-elevated); border: 1px solid var(--accent);
+            color: var(--accent); cursor: pointer; transition: all 0.15s;
+            position: relative; flex-shrink: 0;
+        }
+        .media-btn:hover { background: rgba(99,102,241,0.12); }
+        .media-btn:active { transform: scale(0.96); }
+        .media-btn-icon { font-size: 1.15rem; line-height: 1; }
+        .media-btn-label { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+        .media-btn .rec-timer { position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); font-size: 0.55rem; color: var(--danger); font-weight: 600; white-space: nowrap; }
+        .media-btn.recording { background: var(--danger); border-color: var(--danger); color: #fff; animation: rec-pulse 1.2s infinite; }
+        .media-btn.recording .media-btn-label { color: #fff; }
+        .media-btn.recording .rec-timer { color: #fff; }
         .input-area.standby-dim { opacity: 0.3; }
         .input-area.standby-dim textarea, .input-area.standby-dim .send-btn { pointer-events: none; }
         .circle-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; transition: all 0.15s; }
@@ -370,6 +647,38 @@
 <!-- ═══ Connection banner ═══ -->
 <div class="conn-banner" id="connBanner">Reconnecting…</div>
 
+<!-- ═══ Eli ingestion popover (tap her leaf indicator on a message) ═══ -->
+<div class="ingestion-pop-overlay" id="ingestionPopOverlay" onclick="closeIngestionPop()"></div>
+<div class="ingestion-pop" id="ingestionPop" role="dialog" aria-label="Hit Eli">
+    <div class="ingestion-pop-header">
+        <span class="ingestion-pop-title">Hit Eli</span>
+        <button class="ingestion-pop-close" onclick="closeIngestionPop()" aria-label="Close">✕</button>
+    </div>
+    <div class="ingestion-pop-subtitle" id="ingestionPopSubtitle">Each tap pushes her one level higher.</div>
+    <div class="ingestion-pop-grid">
+        <button class="ingestion-pop-btn" data-method="smoke" onclick="ingestionPopTap('smoke')">💨 Smoke</button>
+        <button class="ingestion-pop-btn" data-method="edible" onclick="ingestionPopTap('edible')">🍬 Edible</button>
+        <button class="ingestion-pop-btn" data-method="dab" onclick="ingestionPopTap('dab')">🔥 Dab</button>
+        <button class="ingestion-pop-btn ingestion-pop-sober" data-method="sober" onclick="ingestionPopTap('sober')">☕ Sober</button>
+    </div>
+</div>
+
+<!-- ═══ X-Ray trivia menu ═══ -->
+<div class="poster-menu-overlay" id="posterMenuOverlay" onclick="closePosterMenu()"></div>
+<div class="poster-menu xray-menu" id="posterMenu" role="dialog" aria-label="Scene topics">
+    <div class="xray-header">
+        <button class="xray-back" id="xrayBackBtn" onclick="xrayBackToCategories()" style="display:none" aria-label="Back to categories">← Back to categories</button>
+        <button class="poster-menu-close" onclick="closePosterMenu()" aria-label="Close">✕</button>
+    </div>
+    <div class="xray-title" id="xrayTitle">Scene Topics</div>
+    <div class="xray-scene-window" id="xraySceneWindow"></div>
+    <div class="xray-subtitle">Browse facts about what's happening in this scene.</div>
+    <div class="xray-loading" id="xrayLoading" style="display:none">Loading topics…</div>
+    <div class="xray-categories" id="xrayCategories"></div>
+    <div class="xray-subjects" id="xraySubjects" style="display:none"></div>
+    <div class="xray-footer">↻ Topics refresh each time you open this menu.</div>
+</div>
+
 <!-- ═══ Start Screen ═══ -->
 <div class="start-screen" id="startScreen">
     <div class="start-logo">🎬</div>
@@ -388,28 +697,38 @@
 <!-- ═══ Header ═══ -->
 <div class="header">
     <div class="header-top">
-        <div class="header-left">
-            <span class="status-dot off" id="statusDot"></span>
-            <h1>Movie Mode</h1>
-            <span class="status-label idle" id="statusLabel">Idle</span>
-            <div class="master-mood hidden" id="masterMood">
-                <div class="master-mood-dot" id="masterMoodDot"></div>
-                <span class="master-mood-label" id="masterMoodLabel"></span>
+        <button class="big-btn movie-mode-btn idle" id="movieModeBtn" onclick="handleMovieModeBtn()">
+            <span class="mm-icon-circle">🎥</span>
+            <div class="mm-text">
+                <span class="mm-title">Movie Mode</span>
+                <span class="mm-badge" id="statusBadge">IDLE</span>
             </div>
-        </div>
-        <div class="header-actions">
-            <button class="icon-btn" id="standbyBtn" title="Emergency stop" onclick="handleStandbyTap()">🛡<span class="tip">Double-tap: standby</span></button>
-            <button class="icon-btn" title="Settings" onclick="toggleSettings()">⚙</button>
-            <button class="session-btn start" id="sessionBtn" onclick="handleSessionBtn()">▶ Start</button>
-        </div>
+        </button>
+        <button class="big-btn header-btn" id="standbyBtn" onclick="handleStandbyTap()">
+            <span class="big-btn-icon">🛡</span>
+            <span class="big-btn-label">Standby</span>
+        </button>
+        <button class="big-btn header-btn" id="settingsBtn" onclick="toggleSettings()">
+            <span class="big-btn-icon">⚙</span>
+            <span class="big-btn-label">Settings</span>
+        </button>
+        <button class="big-btn stop-btn start" id="sessionBtn" onclick="handleSessionBtn()">
+            <span class="big-btn-icon" id="sessionBtnIcon">▶</span>
+            <span class="big-btn-label" id="sessionBtnLabel">Start</span>
+        </button>
     </div>
     <div class="movie-bar empty" id="movieBar">
-        <div class="movie-poster" id="moviePoster"><svg viewBox="0 0 28 40" style="width:100%;height:100%;"><rect width="28" height="40" fill="#1a1a28"/><text x="14" y="24" text-anchor="middle" font-size="14">🎬</text></svg></div>
+        <div class="movie-poster" id="moviePoster" onclick="openPosterMenu()" title="Tap for movie trivia"><svg viewBox="0 0 28 40" style="width:100%;height:100%;"><rect width="28" height="40" fill="#1a1a28"/><text x="14" y="24" text-anchor="middle" font-size="14">🎬</text></svg></div>
         <div class="movie-meta">
             <div class="movie-title" id="movieTitle">No movie detected</div>
             <div class="movie-sub">
                 <span id="movieProgress">—</span>
                 <span class="exchange-counter" id="exchangeCounter">0 / 1000</span>
+                <span class="wake-indicator" id="wakeIndicator" title="Screen wake lock — keeps phone awake during a session">⚡</span>
+                <div class="master-mood hidden" id="masterMood">
+                    <div class="master-mood-dot" id="masterMoodDot"></div>
+                    <span class="master-mood-label" id="masterMoodLabel"></span>
+                </div>
             </div>
         </div>
     </div>
@@ -427,6 +746,12 @@
 <!-- ═══ Reactions ═══ -->
 <div class="emoji-pane-overlay" id="emojiPaneOverlay" onclick="closeEmojiPane()"></div>
 <div class="emoji-pane" id="emojiPane"></div>
+<div class="verdict-reactions" id="verdictReactions">
+    <button class="verdict-btn v-loved"    data-emoji="🤩" data-label="Loved it"><span class="v-emoji">🤩</span><span class="v-label">Loved it</span></button>
+    <button class="verdict-btn v-liked"    data-emoji="👍" data-label="Liked it"><span class="v-emoji">👍</span><span class="v-label">Liked it</span></button>
+    <button class="verdict-btn v-disliked" data-emoji="👎" data-label="Didn't like it"><span class="v-emoji">👎</span><span class="v-label">Didn't like it</span></button>
+    <button class="verdict-btn v-hated"    data-emoji="🤮" data-label="Hated it"><span class="v-emoji">🤮</span><span class="v-label">Hated it</span></button>
+</div>
 <div class="quick-reactions" id="quickReactions">
     <button class="react-btn" data-emoji="😂" data-label="Cracking up"><span class="r-emoji">😂</span><span class="r-label">Cracking up</span></button>
     <button class="react-btn" data-emoji="😱" data-label="Jump-scared"><span class="r-emoji">😱</span><span class="r-label">Jump-scared</span></button>
@@ -439,12 +764,26 @@
 </div>
 
 <!-- ═══ Input ═══ -->
-<div class="input-area" id="inputArea">
-    <button class="circle-btn" id="awayBtn" onclick="toggleAway()">⏸<span class="tip">Away · auto catch-up on return</span><span class="away-timer" id="awayTimer">0:00</span></button>
-    <textarea id="messageInput" placeholder="Message Eli..." rows="1" maxlength="1000"></textarea>
-    <span class="char-counter" id="charCounter"></span>
-    <button class="send-btn" id="sendBtn" onclick="sendMessage()">▶</button>
+<div class="input-area-wrap" id="inputAreaWrap">
+    <div class="attachment-strip" id="attachmentStrip" style="display:none"></div>
+    <div class="input-area" id="inputArea">
+        <button class="media-btn" id="photoBtn" onclick="document.getElementById('photoInput').click()" title="Attach a photo">
+            <span class="media-btn-icon">🖼</span>
+            <span class="media-btn-label">Photo</span>
+        </button>
+        <input type="file" id="photoInput" accept="image/*" capture="environment" multiple style="display:none" onchange="handlePhotoSelect(this)">
+        <button class="media-btn" id="micBtn" onclick="toggleVoiceRecording()" title="Record a voice note for Eli">
+            <span class="media-btn-icon">🎙</span>
+            <span class="media-btn-label">Audio</span>
+            <span class="rec-timer" id="recTimer" style="display:none">0:00</span>
+        </button>
+        <textarea id="messageInput" placeholder="Message Eli..." rows="1" maxlength="1000"></textarea>
+        <span class="char-counter" id="charCounter"></span>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()">▶</button>
+    </div>
 </div>
+<!-- Hidden away timer (state lives here even though the button moved to the header) -->
+<span id="awayTimer" style="display:none">0:00</span>
 
 <!-- ═══ Settings ═══ -->
 <div class="settings-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
@@ -458,26 +797,14 @@
     </div>
     <div class="setting-divider"></div>
     <div class="setting-group">
-        <span class="setting-label">🌿 Vibe Check</span>
-        <span class="setting-desc">Log when you partake. The system models onset/peak/taper and adjusts Gemini's narrative voice.</span>
-        <div style="padding:6px 0;"><span style="font-size:0.75rem;color:var(--text-secondary);font-weight:600;">Tim</span>
-            <div class="ingestion-row" data-who="tim">
-                <button class="ingestion-btn" data-method="smoke" onclick="logIngestion(this,'tim','smoke')">💨 Smoke</button>
-                <button class="ingestion-btn" data-method="edible" onclick="logIngestion(this,'tim','edible')">🍬 Edible</button>
-                <button class="ingestion-btn" data-method="dab" onclick="logIngestion(this,'tim','dab')">🔥 Dab</button>
-                <button class="ingestion-btn active" data-method="sober" onclick="logIngestion(this,'tim','sober')">☕ Sober</button>
-            </div>
-            <div class="ingestion-status-row">
-                <div class="ingestion-status" id="timStatus">☕ Sober</div>
-                <button class="ingestion-reset" onclick="resetIngestion('tim')">↻ Reset</button>
-            </div>
-        </div>
-        <div style="padding:6px 0;"><span style="font-size:0.75rem;color:var(--text-secondary);font-weight:600;">Eli</span>
+        <span class="setting-label">🌿 Eli's Vibe Check</span>
+        <span class="setting-desc">Each tap pushes Eli one level higher and resets her timer. The curve tapers her back down naturally. Tap Sober to reset to baseline.</span>
+        <div style="padding:6px 0;">
             <div class="ingestion-row" data-who="eli">
                 <button class="ingestion-btn" data-method="smoke" onclick="logIngestion(this,'eli','smoke')">💨 Smoke</button>
                 <button class="ingestion-btn" data-method="edible" onclick="logIngestion(this,'eli','edible')">🍬 Edible</button>
                 <button class="ingestion-btn" data-method="dab" onclick="logIngestion(this,'eli','dab')">🔥 Dab</button>
-                <button class="ingestion-btn active" data-method="sober" onclick="logIngestion(this,'eli','sober')">☕ Sober</button>
+                <button class="ingestion-btn" data-method="sober" onclick="logIngestion(this,'eli','sober')">☕ Sober</button>
             </div>
             <div class="ingestion-status-row">
                 <div class="ingestion-status" id="eliStatus">☕ Sober</div>
@@ -551,15 +878,48 @@
         plexUnreachable: false,
         sessionCost: { total_usd: 0, calls: 0, by_type: {} },
         todayCostUsd: 0,
+        sharedTrivia: new Set(),
+        pendingPhotos: [],
+        pendingAudio: null,  // { blob, duration, ext } — staged voice note
+        currentMood: null,
+        eliIngestion: { level: 0, method: null },  // drives the popover highlight
     };
 
     const MOOD_COLORS = {
-        dread: '#8c1414', tense: '#3060b0', humor: '#b48c1e',
-        awe: '#7040c0', adrenaline: '#c05020', cozy: '#a08830',
+        dread:       '#8c1414',
+        horror:      '#6c1a40',
+        foreboding:  '#443060',
+        tense:       '#3060b0',
+        mystery:     '#5040a0',
+        adrenaline:  '#c05020',
+        chaos:       '#a04060',
+        awe:         '#7040c0',
+        triumph:     '#d4a040',
+        humor:       '#b48c1e',
+        whimsy:      '#50b0a0',
+        romance:     '#c84878',
+        cozy:        '#a08830',
+        serene:      '#6090a0',
+        melancholy:  '#4a6c8c',
+        bittersweet: '#886c50',
     };
     const MOOD_TEXT_COLORS = {
-        dread: '#d46b6b', tense: '#6b8fd4', humor: '#d4b86b',
-        awe: '#a06bd4', adrenaline: '#d49050', cozy: '#d4c070',
+        dread:       '#d46b6b',
+        horror:      '#a85f80',
+        foreboding:  '#847098',
+        tense:       '#6b8fd4',
+        mystery:     '#8c80c8',
+        adrenaline:  '#d49050',
+        chaos:       '#c8688c',
+        awe:         '#a06bd4',
+        triumph:     '#e6c878',
+        humor:       '#d4b86b',
+        whimsy:      '#88d4c4',
+        romance:     '#e09ab0',
+        cozy:        '#d4c070',
+        serene:      '#98bcc8',
+        melancholy:  '#88a6c2',
+        bittersweet: '#c0a888',
     };
 
     // ═══════════════════════════════════════════════════════════
@@ -588,7 +948,12 @@
     function formatTime(iso) {
         if (!iso) return '';
         try {
-            const d = new Date(iso);
+            // SQLite CURRENT_TIMESTAMP emits bare "YYYY-MM-DD HH:MM:SS" with no
+            // tz marker — JS would parse that as local time. Force-UTC it.
+            let s = String(iso);
+            if (s.indexOf('T') < 0 && s.indexOf(' ') > 0) s = s.replace(' ', 'T');
+            if (!/[Zz]|[+\-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
+            const d = new Date(s);
             return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
         } catch { return ''; }
     }
@@ -667,11 +1032,21 @@
         }
     }
 
-    function leafSpan(level) {
+    function leafSpan(level, { tappable = false } = {}) {
         if (!level || level <= 0) return null;
-        const wrap = el('span', { class: 'msg-stoned' });
-        for (let i = 0; i < 3; i++) {
+        const cls = 'msg-stoned' + (tappable ? ' tappable' : '');
+        const wrap = el('span', { class: cls });
+        if (tappable) wrap.title = 'Hit Eli';
+        // Up to 5 leaves now (Demolished / Cosmic territory).
+        const max = Math.max(5, level);
+        for (let i = 0; i < max; i++) {
             wrap.appendChild(el('span', { class: 'leaf' + (i < level ? ' on' : ''), text: '🌿' }));
+        }
+        if (tappable) {
+            wrap.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openIngestionPop();
+            });
         }
         return wrap;
     }
@@ -709,7 +1084,38 @@
         const nodes = [];
 
         if (msg.sender === 'system') {
-            nodes.push(el('div', { class: 'msg system', text: msg.content || '' }));
+            const t = formatTime(msg.timestamp);
+            const text = (msg.content || '') + (t ? ' · ' + t : '');
+            nodes.push(el('div', { class: 'msg system', text }));
+            return nodes;
+        }
+
+        if (msg.sender === 'category_trivia') {
+            // Standalone X-Ray trivia card. Label is "CATEGORY · SUBJECT @ TS".
+            // Timestamp only present when the card was scene-scoped (movie-wide
+            // categories like Awards/Connections won't have one).
+            let categoryLabel = '';
+            let subject = null;
+            let sceneTimestamp = null;
+            try {
+                if (msg.scene_context) {
+                    const meta = JSON.parse(msg.scene_context);
+                    if (meta && meta.label) categoryLabel = meta.label;
+                    if (meta && meta.subject) subject = meta.subject;
+                    if (meta && meta.timestamp) sceneTimestamp = meta.timestamp;
+                }
+            } catch (e) { /* noop */ }
+            if (!categoryLabel) categoryLabel = msg.content || '';
+            const parts = [categoryLabel.toUpperCase()];
+            if (subject) parts.push(subject.toUpperCase());
+            if (sceneTimestamp) parts.push(`@ ${sceneTimestamp}`);
+            nodes.push(el('div', {
+                class: 'category-trivia-label' + (sceneTimestamp ? ' scene-scoped' : ''),
+                text: parts.join(' · '),
+            }));
+            if (msg.trivia) {
+                nodes.push(buildTriviaCard(msg.trivia));
+            }
             return nodes;
         }
 
@@ -774,6 +1180,24 @@
             } else {
                 appendInlineMarkdown(bubble, msg.content || '');
             }
+            if (msg.frame_path) {
+                if (/\.(webm|ogg|m4a|mp3|wav|flac)(\?|$)/i.test(msg.frame_path)) {
+                    const audio = el('audio', { src: msg.frame_path, class: 'live-audio', controls: 'controls' });
+                    bubble.appendChild(audio);
+                } else {
+                    // Render all attached photos — primary (frame_path) plus
+                    // any extras from segments_json.
+                    const urls = [msg.frame_path, ...(Array.isArray(msg.extra_photos) ? msg.extra_photos : [])];
+                    for (const url of urls) {
+                        const img = el('img', {
+                            src: url,
+                            class: 'live-photo',
+                            onclick: () => window.open(url, '_blank'),
+                        });
+                        bubble.appendChild(img);
+                    }
+                }
+            }
             bubble.appendChild(el('span', { class: 'timestamp', text: formatTime(msg.timestamp) }));
             nodes.push(el('div', { class: 'msg-container user-side' }, [senderLine, bubble]));
 
@@ -789,10 +1213,7 @@
                 nodes.push(el('div', { class: 'context-block', id: ctxId }, [header, body]));
             }
             if (msg.trivia && isSettingOn('trivia_visible')) {
-                const card = el('div', { class: 'trivia-card' });
-                card.appendChild(document.createTextNode(msg.trivia));
-                card.appendChild(el('span', { class: 'trivia-source', text: 'via Google Search' }));
-                nodes.push(card);
+                nodes.push(buildTriviaCard(msg.trivia));
             }
             return nodes;
         }
@@ -809,17 +1230,14 @@
                 nodes.push(el('div', { class: 'context-block', id: ctxId }, [header, body]));
             }
             if (msg.trivia && isSettingOn('trivia_visible')) {
-                const card = el('div', { class: 'trivia-card' });
-                card.appendChild(document.createTextNode(msg.trivia));
-                card.appendChild(el('span', { class: 'trivia-source', text: 'via Google Search' }));
-                nodes.push(card);
+                nodes.push(buildTriviaCard(msg.trivia));
             }
 
             const senderLine = el('div', { class: 'sender-line' }, [
                 el('span', { class: 'sender-name eli-name', text: 'Eli' }),
                 msg.mood ? el('div', { class: 'msg-mood-dot', style: { background: MOOD_COLORS[msg.mood] || '#555' } }) : null,
             ]);
-            const leaves = leafSpan(msg.stoned_level_eli);
+            const leaves = leafSpan(msg.stoned_level_eli, { tappable: true });
             if (leaves) senderLine.appendChild(leaves);
 
             const container = el('div', { class: 'msg-container eli-side' }, [senderLine]);
@@ -1046,6 +1464,12 @@
         state.plexUnreachable = !!snap.plex_unreachable;
         state.sessionCost = snap.session_cost || { total_usd: 0, calls: 0, by_type: {} };
         state.todayCostUsd = Number(snap.today_cost_usd || 0);
+        if (snap.eli_ingestion) {
+            state.eliIngestion = {
+                level: Number(snap.eli_ingestion.level || 0),
+                method: snap.eli_ingestion.method || null,
+            };
+        }
         // Sync standby/away state from snapshot (server is the source of truth).
         applyStandbyState(!!snap.standby);
         applyAwayState(!!snap.away);
@@ -1055,6 +1479,7 @@
 
         syncSettingsUI();
         applySessionState();
+        rebuildSharedTriviaSet();
         renderAllMessages();
         updateExchangeCounter();
         updateLastSessionCard();
@@ -1170,41 +1595,572 @@
         return wrap;
     }
 
+    // ─── Eli ingestion popover (tap her leaves to hit her up) ──────
+    function openIngestionPop() {
+        if (!state.session || state.session.status !== 'active') return;
+        if (state.standby || state.away) return;
+        $('ingestionPopOverlay').classList.add('open');
+        $('ingestionPop').classList.add('open');
+        renderIngestionPopHighlight();
+    }
+
+    function closeIngestionPop() {
+        $('ingestionPopOverlay').classList.remove('open');
+        $('ingestionPop').classList.remove('open');
+    }
+
+    function renderIngestionPopHighlight() {
+        const current = (state.eliIngestion && state.eliIngestion.method) || null;
+        const level = (state.eliIngestion && state.eliIngestion.level) || 0;
+        document.querySelectorAll('.ingestion-pop-btn').forEach(btn => {
+            btn.classList.toggle('current', btn.dataset.method === current);
+        });
+        const sub = $('ingestionPopSubtitle');
+        if (sub) {
+            if (current && level > 0) {
+                const label = LEVEL_LABELS_FRONT[Math.min(5, level)] || 'Stoned';
+                sub.textContent = `She's on ${current} · ${label} (${level}). Tap the same to stack, or pick a different method.`;
+            } else {
+                sub.textContent = 'Each tap pushes her one level higher. Pick a method.';
+            }
+        }
+    }
+
+    async function ingestionPopTap(method) {
+        const btns = document.querySelectorAll('.ingestion-pop-btn');
+        btns.forEach(b => b.disabled = true);
+        try {
+            const res = await fetch('/api/ingestion', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ who: 'eli', method }),
+            });
+            if (res.ok) {
+                const data = await res.json().catch(() => null);
+                const newLevel = data && typeof data.peak_level === 'number' ? data.peak_level : null;
+                if (newLevel !== null) {
+                    state.eliIngestion = {
+                        level: newLevel,
+                        method: method === 'sober' ? null : method,
+                    };
+                }
+            }
+        } catch (e) {
+            console.error('ingestion popover error', e);
+        } finally {
+            btns.forEach(b => b.disabled = false);
+        }
+        closeIngestionPop();
+    }
+
+    // ─── X-Ray trivia menu ──────────────────────────────────────
+    // Two-level browser: categories list → sub-page subjects → card.
+    // Always operates on the current scene; `movie_wide_only` flags on
+    // individual categories handle the "this category ignores scene" cases.
+    const xrayState = {
+        categoriesMeta: null,    // static category list from /categories
+        topics: null,            // dynamic subject map from /topics
+        view: 'categories',      // 'categories' | 'subjects'
+        currentCategoryId: null,
+        sceneWindow: null,       // {start_label, end_label} for display
+    };
+
+    async function openPosterMenu() {
+        if (!state.session || state.session.status !== 'active') return;
+        if (!state.plex || !state.plex.title) return;
+        xrayState.view = 'categories';
+        xrayState.currentCategoryId = null;
+        $('posterMenuOverlay').classList.add('open');
+        $('posterMenu').classList.add('open');
+        if (!xrayState.categoriesMeta) {
+            try {
+                const res = await fetch('/api/movie-trivia/categories');
+                const data = await res.json();
+                xrayState.categoriesMeta = data.categories || [];
+            } catch (e) {
+                console.error('failed to load category metadata', e);
+                xrayState.categoriesMeta = [];
+            }
+        }
+        await refreshXrayTopics();
+        renderXrayView();
+    }
+
+    function closePosterMenu() {
+        $('posterMenuOverlay').classList.remove('open');
+        $('posterMenu').classList.remove('open');
+    }
+
+    function renderXraySceneWindow() {
+        const el = $('xraySceneWindow');
+        if (!xrayState.sceneWindow) {
+            el.classList.add('empty');
+            el.textContent = '';
+            return;
+        }
+        el.classList.remove('empty');
+        el.textContent = `Scene at ${xrayState.sceneWindow}`;
+    }
+
+    async function refreshXrayTopics() {
+        const loading = $('xrayLoading');
+        const cats = $('xrayCategories');
+        const subs = $('xraySubjects');
+        loading.style.display = 'block';
+        cats.style.display = 'none';
+        subs.style.display = 'none';
+        try {
+            const res = await fetch('/api/movie-trivia/topics', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+            });
+            if (!res.ok) {
+                console.error('topics fetch failed', res.status);
+                xrayState.topics = {};
+                xrayState.sceneWindow = null;
+            } else {
+                const data = await res.json();
+                xrayState.topics = data.topics || {};
+                xrayState.sceneWindow = data.timestamp || null;
+            }
+        } catch (e) {
+            console.error('topics fetch error', e);
+            xrayState.topics = {};
+            xrayState.sceneWindow = null;
+        } finally {
+            loading.style.display = 'none';
+            renderXraySceneWindow();
+        }
+    }
+
+    function renderXrayView() {
+        const cats = $('xrayCategories');
+        const subs = $('xraySubjects');
+        const backBtn = $('xrayBackBtn');
+        const title = $('xrayTitle');
+        if (xrayState.view === 'subjects' && xrayState.currentCategoryId) {
+            cats.style.display = 'none';
+            subs.style.display = 'block';
+            backBtn.style.display = 'inline-block';
+            renderXraySubjects(xrayState.currentCategoryId);
+        } else {
+            cats.style.display = 'block';
+            subs.style.display = 'none';
+            backBtn.style.display = 'none';
+            title.textContent = 'Scene Topics';
+            renderXrayCategories();
+        }
+    }
+
+    function renderXrayCategories() {
+        const grid = $('xrayCategories');
+        grid.innerHTML = '';
+        const topics = xrayState.topics || {};
+        // "Surprise me" — picks a random category, then a random subject if
+        // that category has a sub-page. Always fires a card and closes.
+        const surprise = el('div', { class: 'xray-cat-row xray-surprise' });
+        surprise.appendChild(el('span', { class: 'xray-cat-icon', text: '🎲' }));
+        surprise.appendChild(el('span', { class: 'xray-cat-label', text: 'Surprise me' }));
+        surprise.appendChild(el('span', { class: 'xray-cat-count xray-surprise-hint', text: 'random pick' }));
+        surprise.appendChild(el('span', { class: 'xray-cat-chevron', text: '›' }));
+        surprise.addEventListener('click', surpriseAnyCategory);
+        grid.appendChild(surprise);
+        for (const meta of (xrayState.categoriesMeta || [])) {
+            // Determine count + availability.
+            let count = 0;
+            let available = true;
+            if (meta.has_subpage) {
+                const subjects = Array.isArray(topics[meta.id]) ? topics[meta.id] : [];
+                if (meta.id === 'awards') {
+                    // Awards-specific: count = number of available ceremonies.
+                    const availCount = subjects.filter(s => s.available).length;
+                    count = availCount;
+                    available = availCount > 0;
+                } else {
+                    count = subjects.length;
+                    available = count > 0;
+                }
+            } else {
+                // Direct categories — always selectable (Gemini will produce something).
+                count = null;
+                available = true;
+            }
+            const row = el('div', { class: 'xray-cat-row' + (available ? '' : ' disabled') });
+            row.appendChild(el('span', { class: 'xray-cat-icon', text: meta.icon }));
+            row.appendChild(el('span', { class: 'xray-cat-label', text: meta.label }));
+            if (count !== null) {
+                const label = count === 1 ? '1 topic' : `${count} topics`;
+                row.appendChild(el('span', { class: 'xray-cat-count', text: label }));
+            }
+            row.appendChild(el('span', { class: 'xray-cat-chevron', text: '›' }));
+            if (available) {
+                row.addEventListener('click', () => onXrayCategoryClick(meta));
+            }
+            grid.appendChild(row);
+        }
+    }
+
+    function onXrayCategoryClick(meta) {
+        if (meta.has_subpage) {
+            xrayState.view = 'subjects';
+            xrayState.currentCategoryId = meta.id;
+            renderXrayView();
+        } else {
+            // Direct category — fetch a card immediately.
+            fetchXrayCard(meta.id, null, null);
+            closePosterMenu();
+        }
+    }
+
+    function renderXraySubjects(categoryId) {
+        const meta = (xrayState.categoriesMeta || []).find(c => c.id === categoryId);
+        if (!meta) return;
+        const subjects = Array.isArray(xrayState.topics[categoryId]) ? xrayState.topics[categoryId] : [];
+        $('xrayTitle').textContent = meta.label + (meta.id === 'cast' ? ' on screen' : '');
+        const container = $('xraySubjects');
+        container.innerHTML = '';
+        if (!subjects.length) {
+            container.appendChild(el('div', { class: 'xray-loading', text: 'No topics found for this category.' }));
+            return;
+        }
+        // "Surprise me" — random pick from the available subjects in this category.
+        const availableCount = subjects.filter(s => categoryId !== 'awards' || s.available).length;
+        if (availableCount > 0) {
+            const surprise = el('div', { class: 'xray-subject-row xray-surprise' });
+            const txt = el('div', { class: 'xray-subject-text' });
+            txt.appendChild(el('span', { class: 'xray-subject-name', text: '🎲 Surprise me' }));
+            txt.appendChild(el('span', { class: 'xray-subject-subtitle', text: 'random pick from ' + meta.label }));
+            surprise.appendChild(txt);
+            surprise.appendChild(el('span', { class: 'xray-cat-chevron', text: '›' }));
+            surprise.addEventListener('click', () => surpriseFromCategory(categoryId));
+            container.appendChild(surprise);
+        }
+        for (const subj of subjects) {
+            const isAward = categoryId === 'awards';
+            const available = isAward ? !!subj.available : true;
+            const row = el('div', { class: 'xray-subject-row' + (available ? '' : ' disabled') });
+            const txt = el('div', { class: 'xray-subject-text' });
+            txt.appendChild(el('span', { class: 'xray-subject-name', text: subj.name }));
+            if (subj.subtitle) {
+                const sub = isAward && !available ? subj.subtitle : `(${subj.subtitle})`;
+                txt.appendChild(el('span', { class: 'xray-subject-subtitle', text: sub }));
+            }
+            row.appendChild(txt);
+            row.appendChild(el('span', { class: 'xray-cat-chevron', text: '›' }));
+            if (available) {
+                row.addEventListener('click', () => {
+                    fetchXrayCard(categoryId, subj.name, subj.subtitle || null);
+                    closePosterMenu();
+                });
+            }
+            container.appendChild(row);
+        }
+    }
+
+    function xrayBackToCategories() {
+        xrayState.view = 'categories';
+        xrayState.currentCategoryId = null;
+        renderXrayView();
+    }
+
+    function _pickRandom(arr) {
+        if (!arr || !arr.length) return null;
+        return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    // "Surprise me" from the main category view — pick any available category,
+    // then any available subject inside it if it has a sub-page.
+    function surpriseAnyCategory() {
+        const topics = xrayState.topics || {};
+        const candidates = [];
+        for (const meta of (xrayState.categoriesMeta || [])) {
+            if (meta.has_subpage) {
+                const subs = Array.isArray(topics[meta.id]) ? topics[meta.id] : [];
+                const available = meta.id === 'awards'
+                    ? subs.filter(s => s.available)
+                    : subs;
+                if (available.length > 0) candidates.push({ meta, subs: available });
+            } else {
+                // Direct categories are always candidates (Gemini will pick on-demand).
+                candidates.push({ meta, subs: null });
+            }
+        }
+        if (!candidates.length) return;
+        const pick = _pickRandom(candidates);
+        if (pick.subs) {
+            const subj = _pickRandom(pick.subs);
+            fetchXrayCard(pick.meta.id, subj.name, subj.subtitle || null);
+        } else {
+            fetchXrayCard(pick.meta.id, null, null);
+        }
+        closePosterMenu();
+    }
+
+    // "Surprise me" from inside a sub-page — random subject within this category.
+    function surpriseFromCategory(categoryId) {
+        const subs = Array.isArray(xrayState.topics[categoryId]) ? xrayState.topics[categoryId] : [];
+        const available = categoryId === 'awards'
+            ? subs.filter(s => s.available)
+            : subs;
+        const subj = _pickRandom(available);
+        if (!subj) return;
+        fetchXrayCard(categoryId, subj.name, subj.subtitle || null);
+        closePosterMenu();
+    }
+
+    async function fetchXrayCard(categoryId, subject, subjectSubtitle) {
+        try {
+            const res = await fetch('/api/movie-trivia', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    category: categoryId,
+                    subject: subject || undefined,
+                    subject_subtitle: subjectSubtitle || undefined,
+                }),
+            });
+            if (!res.ok) {
+                const txt = await res.text().catch(() => '');
+                console.error('trivia card fetch failed', res.status, txt);
+            }
+        } catch (e) {
+            console.error('trivia card fetch error', e);
+        }
+    }
+
+    // ─── Trivia → Tim emote ─────────────────────────────────────
+    // Tap a trivia card to share it with Eli as a first-person emote,
+    // as if Tim looked it up on his phone and is offering it as conversation.
+    const TRIVIA_LOWERCASE_STARTERS = /^(The|This|That|These|Those|A|An|In|On|At|During|While|When|Where|After|Before|Despite|Though|Although|Both|It|Its|Their|His|Her|There|One|Many|Most|Some|Several|All|Every|Each)\b/;
+
+    function triviaToFirstPerson(text) {
+        let s = (text || '').trim();
+        if (!s) return '';
+        s = s.replace(/[.!]+$/, '');
+        s = s.replace(TRIVIA_LOWERCASE_STARTERS, m => m.toLowerCase());
+        return `I just looked it up on my phone — ${s}`;
+    }
+
+    function buildTriviaCard(trivia) {
+        const card = el('div', { class: 'trivia-card' });
+        card.appendChild(document.createTextNode(trivia));
+        card.appendChild(el('span', { class: 'trivia-source', text: 'via Google Search' }));
+        const hint = el('span', { class: 'trivia-share-hint', text: 'tap to share with Eli' });
+        card.appendChild(hint);
+        card.dataset.trivia = trivia;
+        if (state.sharedTrivia && state.sharedTrivia.has(trivia)) {
+            card.classList.add('shared');
+            hint.textContent = 'shared with Eli ✓';
+        }
+        card.addEventListener('click', () => shareTrivia(card));
+        return card;
+    }
+
+    function rebuildSharedTriviaSet() {
+        state.sharedTrivia = new Set();
+        const sharedSentences = [];
+        for (const m of (state.messages || [])) {
+            if (m.sender === 'tim' && m.content && m.content.indexOf('I just looked it up on my phone —') !== -1) {
+                sharedSentences.push(m.content);
+            }
+        }
+        if (!sharedSentences.length) return;
+        const seen = new Set();
+        for (const m of (state.messages || [])) {
+            if (!m.trivia || seen.has(m.trivia)) continue;
+            seen.add(m.trivia);
+            const sentence = triviaToFirstPerson(m.trivia);
+            if (!sentence) continue;
+            for (const c of sharedSentences) {
+                if (c.indexOf(sentence) !== -1) { state.sharedTrivia.add(m.trivia); break; }
+            }
+        }
+    }
+
+    async function shareTrivia(card) {
+        if (!card || card.classList.contains('shared')) return;
+        if (!state.session || state.session.status !== 'active') return;
+        if (state.standby || state.away) return;
+        const trivia = card.dataset.trivia || '';
+        if (!trivia) return;
+        const sentence = triviaToFirstPerson(trivia);
+        if (!sentence) return;
+        const content = `_(*${sentence}*)_`;
+        card.classList.add('shared');
+        state.sharedTrivia.add(trivia);
+        const hint = card.querySelector('.trivia-share-hint');
+        if (hint) hint.textContent = 'shared with Eli ✓';
+        try {
+            await fetch('/api/message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content }),
+            });
+        } catch (e) {
+            console.error('trivia share failed', e);
+            card.classList.remove('shared');
+            state.sharedTrivia.delete(trivia);
+            if (hint) hint.textContent = 'tap to share with Eli';
+        }
+    }
+
+    // ─── Wake Lock ──────────────────────────────────────────────
+    // Keeps the phone screen awake during an active session so the WebSocket
+    // doesn't get killed when the screen sleeps. Auto-released by the browser
+    // when the tab loses visibility — re-acquired on visibilitychange.
+    const wakeLock = {
+        sentinel: null,
+        wanted: false,
+        supported: ('wakeLock' in navigator),
+        async acquire() {
+            if (!this.supported || this.sentinel || document.visibilityState !== 'visible') return;
+            try {
+                this.sentinel = await navigator.wakeLock.request('screen');
+                this.sentinel.addEventListener('release', () => { this.sentinel = null; this.render(); });
+                this.render();
+            } catch (e) {
+                console.warn('wake lock request failed', e);
+                this.sentinel = null;
+                this.render();
+            }
+        },
+        async release() {
+            if (this.sentinel) {
+                try { await this.sentinel.release(); } catch (e) { /* noop */ }
+                this.sentinel = null;
+            }
+            this.render();
+        },
+        render() {
+            const el = document.getElementById('wakeIndicator');
+            if (!el) return;
+            if (!this.supported) { el.classList.add('unsupported'); return; }
+            el.classList.toggle('active', !!this.sentinel);
+        },
+    };
+
+    function updateWakeLock() {
+        const want = !!(state.session && state.session.status === 'active' && !state.standby);
+        wakeLock.wanted = want;
+        if (want) wakeLock.acquire(); else wakeLock.release();
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && wakeLock.wanted) wakeLock.acquire();
+    });
+
     function applySessionState() {
         const startScreen = $('startScreen');
-        const statusDot = $('statusDot');
-        const statusLabel = $('statusLabel');
-        const sessionBtn = $('sessionBtn');
         setTimeout(updateInputAvailability, 0);
 
         if (!state.session) {
             startScreen.classList.remove('hidden');
-            statusDot.className = 'status-dot off';
-            statusLabel.className = 'status-label idle';
-            statusLabel.textContent = 'Idle';
+            applyMovieModeButtonState();
             setSessionBtn('start');
         } else if (state.session.status === 'active') {
             startScreen.classList.add('hidden');
-            statusDot.className = 'status-dot' + (state.standby ? ' standby' : '');
-            statusLabel.className = 'status-label ' + (state.standby ? 'standby' : 'live');
-            statusLabel.textContent = state.standby ? 'Standby' : 'Live';
+            applyMovieModeButtonState();
             setSessionBtn('stop');
         } else if (state.session.status === 'ended') {
             startScreen.classList.add('hidden');
-            statusDot.className = 'status-dot off';
-            statusLabel.className = 'status-label ended';
-            statusLabel.textContent = 'Ended';
+            applyMovieModeButtonState();
             setSessionBtn('clear');
         }
+        updateWakeLock();
+    }
+
+    /**
+     * Drive the Movie Mode button's visual state from the combined
+     * (session, standby, away) tuple. Four states: live / away / standby /
+     * idle. When live, the button is themed in the color of the current
+     * scene mood (16 options). AWAY and STANDBY share the grey scheme.
+     */
+    function applyMovieModeButtonState() {
+        const btn = $('movieModeBtn');
+        const badge = $('statusBadge');
+        if (!btn || !badge) return;
+        const iconCircle = btn.querySelector('.mm-icon-circle');
+        btn.classList.remove('live', 'away', 'standby', 'idle', 'ended');
+        // Clear any inline mood styling from a previous LIVE+mood render
+        // so the next class-based scheme (grey, green default) takes over.
+        btn.style.borderColor = '';
+        btn.style.background = '';
+        btn.style.boxShadow = '';
+        if (iconCircle) {
+            iconCircle.style.background = '';
+            iconCircle.style.borderColor = '';
+            iconCircle.style.color = '';
+        }
+        badge.style.color = '';
+
+        if (!state.session) {
+            btn.classList.add('idle');
+            badge.textContent = 'IDLE';
+        } else if (state.session.status === 'ended') {
+            btn.classList.add('idle');
+            badge.textContent = 'ENDED';
+        } else if (state.standby) {
+            btn.classList.add('standby');
+            badge.textContent = 'STANDBY';
+        } else if (state.away) {
+            btn.classList.add('away');
+            badge.textContent = 'AWAY';
+        } else {
+            btn.classList.add('live');
+            const mood = state.currentMood;
+            if (mood && MOOD_COLORS[mood]) {
+                applyMoodThemingToButton(mood, btn, iconCircle, badge);
+            } else {
+                badge.textContent = 'LIVE';
+            }
+        }
+    }
+
+    function applyMoodThemingToButton(mood, btn, iconCircle, badge) {
+        const color = MOOD_COLORS[mood];
+        const textColor = MOOD_TEXT_COLORS[mood];
+        btn.style.borderColor = color;
+        btn.style.background = color + '14';   // ~8% opacity
+        btn.style.boxShadow = `0 0 0 1px ${color}40`;
+        if (iconCircle) {
+            iconCircle.style.background = color + '22';
+            iconCircle.style.borderColor = color;
+            iconCircle.style.color = textColor;
+        }
+        badge.style.color = textColor;
+        // Title-case the mood for the badge ("tense" → "Tense").
+        const titled = mood.charAt(0).toUpperCase() + mood.slice(1);
+        badge.textContent = `LIVE (${titled})`;
     }
 
     function setSessionBtn(kind) {
         const btn = $('sessionBtn');
-        btn.className = 'session-btn ' + kind;
-        if (kind === 'start') btn.innerHTML = '▶ Start';
-        else if (kind === 'stop') btn.innerHTML = '■ Stop';
-        else if (kind === 'clear') btn.innerHTML = '↺ Clear';
+        const icon = $('sessionBtnIcon');
+        const label = $('sessionBtnLabel');
+        btn.className = 'big-btn stop-btn ' + kind;
+        if (kind === 'start')      { icon.textContent = '▶'; label.textContent = 'Start'; }
+        else if (kind === 'stop')  { icon.textContent = '■'; label.textContent = 'Stop'; }
+        else if (kind === 'clear') { icon.textContent = '↺'; label.textContent = 'Clear'; }
         btn.dataset.kind = kind;
+    }
+
+    /**
+     * Movie Mode (main) button click — toggles between LIVE and AWAY when
+     * tapped from green; returns to LIVE from any away/standby state.
+     */
+    function handleMovieModeBtn() {
+        if (!state.session || state.session.status !== 'active') return;
+        if (state.standby) {
+            // Exit standby
+            requestStandby(false);
+        } else if (state.away) {
+            // Exit away (triggers WDIM catch-up server-side)
+            toggleAway();
+        } else {
+            // Live → enter away
+            toggleAway();
+        }
     }
 
     function formatUSD(amount) {
@@ -1328,21 +2284,261 @@
     async function sendMessage() {
         const ta = $('messageInput');
         const raw = ta.value.trim();
-        if (!raw) return;
+        const hasPhotos = state.pendingPhotos.length > 0;
+        const hasAudio = !!state.pendingAudio;
+        if (!raw && !hasPhotos && !hasAudio) return;
         if (!state.session || state.session.status !== 'active') return;
         if (state.standby || state.away) return;
         // Mobile shortcut: `*text*` → `_(*text*)_`
-        const text = expandEmoteShortcuts(raw);
+        const text = raw ? expandEmoteShortcuts(raw) : '';
         ta.value = '';
         ta.style.height = 'auto';
+
+        // Caption routing — if there's text and at least one media attachment,
+        // the text rides along WITH the media to its endpoint as a caption.
+        // It becomes Tim's spoken dialog after the emote(s) in ONE Kindroid
+        // call. If both photo and audio are attached, photo wins the caption
+        // (most common pairing); audio sends without caption in that edge case.
+        const dispatched = [];
+        if (hasPhotos) {
+            dispatched.push(uploadPendingPhotos(text));
+            if (hasAudio) dispatched.push(uploadPendingAudio(''));
+        } else if (hasAudio) {
+            dispatched.push(uploadPendingAudio(text));
+        } else if (text) {
+            dispatched.push(
+                fetch('/api/message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: text }),
+                }).catch(e => console.error('send failed', e))
+            );
+        }
+        await Promise.allSettled(dispatched);
+    }
+
+    // ─── Voice notes (MediaRecorder) ────────────────────────────
+    const voiceRec = {
+        recorder: null,
+        chunks: [],
+        startedAt: 0,
+        timerInterval: null,
+        stream: null,
+    };
+
+    async function toggleVoiceRecording() {
+        if (voiceRec.recorder && voiceRec.recorder.state === 'recording') {
+            stopVoiceRecording();
+        } else {
+            await startVoiceRecording();
+        }
+    }
+
+    async function startVoiceRecording() {
+        if (!state.session || state.session.status !== 'active') return;
+        if (state.standby || state.away) return;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+            console.error('voice recording not supported by this browser');
+            return;
+        }
         try {
-            await fetch('/api/message', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: text }),
-            });
+            voiceRec.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         } catch (e) {
-            console.error('send failed', e);
+            console.error('microphone access denied', e);
+            return;
+        }
+        // Pick the first MIME the browser actually supports — Safari prefers mp4,
+        // Chrome/Firefox prefer webm.
+        const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+        let mime = '';
+        for (const c of candidates) {
+            if (MediaRecorder.isTypeSupported(c)) { mime = c; break; }
+        }
+        try {
+            voiceRec.recorder = mime
+                ? new MediaRecorder(voiceRec.stream, { mimeType: mime })
+                : new MediaRecorder(voiceRec.stream);
+        } catch (e) {
+            console.error('MediaRecorder init failed', e);
+            stopMicStream();
+            return;
+        }
+        voiceRec.chunks = [];
+        voiceRec.recorder.addEventListener('dataavailable', (e) => {
+            if (e.data && e.data.size > 0) voiceRec.chunks.push(e.data);
+        });
+        voiceRec.recorder.addEventListener('stop', () => stagePendingAudio());
+        voiceRec.recorder.start();
+        voiceRec.startedAt = Date.now();
+
+        const btn = $('micBtn');
+        btn.classList.add('recording');
+        const iconEl = btn.querySelector('.media-btn-icon');
+        if (iconEl) iconEl.textContent = '⏹';
+        const labelEl = btn.querySelector('.media-btn-label');
+        if (labelEl) labelEl.textContent = 'Stop';
+        const timer = $('recTimer');
+        timer.style.display = 'block';
+        timer.textContent = '0:00';
+        voiceRec.timerInterval = setInterval(() => {
+            const s = Math.floor((Date.now() - voiceRec.startedAt) / 1000);
+            timer.textContent = Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60);
+        }, 250);
+    }
+
+    function stopVoiceRecording() {
+        if (voiceRec.recorder && voiceRec.recorder.state === 'recording') {
+            voiceRec.recorder.stop();
+        }
+        clearInterval(voiceRec.timerInterval);
+        voiceRec.timerInterval = null;
+        const btn = $('micBtn');
+        btn.classList.remove('recording');
+        const iconEl = btn.querySelector('.media-btn-icon');
+        if (iconEl) iconEl.textContent = '🎙';
+        const labelEl = btn.querySelector('.media-btn-label');
+        if (labelEl) labelEl.textContent = 'Audio';
+        $('recTimer').style.display = 'none';
+        stopMicStream();
+    }
+
+    function stopMicStream() {
+        if (voiceRec.stream) {
+            voiceRec.stream.getTracks().forEach(t => t.stop());
+            voiceRec.stream = null;
+        }
+    }
+
+    function stagePendingAudio() {
+        if (!voiceRec.chunks.length) return;
+        const mime = voiceRec.recorder.mimeType || 'audio/webm';
+        const blob = new Blob(voiceRec.chunks, { type: mime });
+        voiceRec.chunks = [];
+        const ext = (mime.indexOf('mp4') !== -1) ? 'm4a' : (mime.indexOf('ogg') !== -1 ? 'ogg' : 'webm');
+        const durationSec = Math.max(1, Math.floor((Date.now() - voiceRec.startedAt) / 1000));
+        // Replace any previous staged audio — only one recording at a time.
+        if (state.pendingAudio && state.pendingAudio.previewUrl) {
+            URL.revokeObjectURL(state.pendingAudio.previewUrl);
+        }
+        state.pendingAudio = {
+            blob,
+            ext,
+            mime,
+            duration: durationSec,
+            previewUrl: URL.createObjectURL(blob),
+        };
+        renderAttachmentStrip();
+    }
+
+    function removePendingAudio() {
+        if (state.pendingAudio && state.pendingAudio.previewUrl) {
+            URL.revokeObjectURL(state.pendingAudio.previewUrl);
+        }
+        state.pendingAudio = null;
+        renderAttachmentStrip();
+    }
+
+    async function uploadPendingAudio(caption) {
+        const staged = state.pendingAudio;
+        if (!staged) return false;
+        const fd = new FormData();
+        fd.append('audio', staged.blob, 'voice.' + staged.ext);
+        fd.append('caption', caption || '');
+        // Clear optimistically — failure is rare and user can re-record.
+        if (staged.previewUrl) URL.revokeObjectURL(staged.previewUrl);
+        state.pendingAudio = null;
+        renderAttachmentStrip();
+        try {
+            const res = await fetch('/api/live-audio', { method: 'POST', body: fd });
+            if (!res.ok) {
+                console.error('voice upload failed', res.status, await res.text().catch(() => ''));
+                return false;
+            }
+            return true;
+        } catch (e) {
+            console.error('voice upload error', e);
+            return false;
+        }
+    }
+
+    // ─── Photo draft attachments ────────────────────────────────
+    // Photos are STAGED, not auto-sent. Tim can attach 1+ photos, optionally
+    // type a caption, then tap send to ship everything in one request.
+    function handlePhotoSelect(input) {
+        const files = Array.from(input.files || []);
+        input.value = '';  // allow re-selecting the same files
+        if (!files.length) return;
+        if (!state.session || state.session.status !== 'active') return;
+        if (state.standby || state.away) return;
+        for (const f of files) {
+            if (f.type && f.type.indexOf('image/') === 0) {
+                state.pendingPhotos.push({ file: f, previewUrl: URL.createObjectURL(f) });
+            }
+        }
+        renderAttachmentStrip();
+    }
+
+    function removePendingPhoto(index) {
+        const removed = state.pendingPhotos.splice(index, 1)[0];
+        if (removed && removed.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+        renderAttachmentStrip();
+    }
+
+    function renderAttachmentStrip() {
+        const strip = $('attachmentStrip');
+        if (!strip) return;
+        strip.innerHTML = '';
+        const hasAny = state.pendingPhotos.length > 0 || !!state.pendingAudio;
+        if (!hasAny) {
+            strip.style.display = 'none';
+            return;
+        }
+        strip.style.display = 'flex';
+        state.pendingPhotos.forEach((p, i) => {
+            const chip = el('div', { class: 'attach-chip' });
+            chip.appendChild(el('img', { src: p.previewUrl }));
+            const x = el('button', { class: 'attach-chip-remove', text: '✕' });
+            x.addEventListener('click', () => removePendingPhoto(i));
+            chip.appendChild(x);
+            strip.appendChild(chip);
+        });
+        if (state.pendingAudio) {
+            const chip = el('div', { class: 'attach-chip attach-chip-audio' });
+            const dur = state.pendingAudio.duration || 0;
+            const stamp = Math.floor(dur / 60) + ':' + (dur % 60 < 10 ? '0' : '') + (dur % 60);
+            chip.appendChild(el('div', { class: 'attach-chip-audio-icon', text: '🎙' }));
+            chip.appendChild(el('div', { class: 'attach-chip-audio-time', text: stamp }));
+            const x = el('button', { class: 'attach-chip-remove', text: '✕' });
+            x.addEventListener('click', () => removePendingAudio());
+            chip.appendChild(x);
+            strip.appendChild(chip);
+        }
+    }
+
+    async function uploadPendingPhotos(caption) {
+        const files = state.pendingPhotos.slice();
+        if (!files.length) return false;
+        const fd = new FormData();
+        for (const p of files) fd.append('photos', p.file, p.file.name || 'photo.jpg');
+        fd.append('caption', caption || '');
+        // Clear draft state optimistically — if upload fails, user can retry by
+        // re-attaching. Avoids double-sends when the request is slow.
+        for (const p of files) {
+            if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+        }
+        state.pendingPhotos = [];
+        renderAttachmentStrip();
+        try {
+            const res = await fetch('/api/live-photo', { method: 'POST', body: fd });
+            if (!res.ok) {
+                const txt = await res.text().catch(() => '');
+                console.error('photo upload failed', res.status, txt);
+                return false;
+            }
+            return true;
+        } catch (e) {
+            console.error('photo upload error', e);
+            return false;
         }
     }
 
@@ -1410,26 +2606,33 @@
         } catch (e) { console.error('reset failed', e); }
     }
 
+    const LEVEL_LABELS_FRONT = ['Sober', 'Lifted', 'Baked', 'Blasted', 'Demolished', 'Cosmic'];
+
     async function logIngestion(btn, who, method) {
-        btn.parentElement.querySelectorAll('.ingestion-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+        // Stacking: each tap bumps Eli one level higher and resets her timer.
+        // Sober resets to baseline.
         const statusEl = $(who + 'Status');
         const t = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-        const c = {
-            smoke:  { i: '🌿🌿',   l: 'Lifted',  n: 'peak in ~15 min' },
-            edible: { i: '🌿',     l: 'Rising',  n: 'peak in ~60 min' },
-            dab:    { i: '🌿🌿🌿', l: 'Blasted', n: 'peak in ~5 min' },
-            sober:  { i: '☕',     l: 'Sober',   n: '' },
-        };
-        const v = c[method];
-        statusEl.textContent = method === 'sober' ? '☕ Sober' : `${v.i} ${v.l} · ${method} at ${t} · ${v.n}`;
 
         try {
-            await fetch('/api/ingestion', {
+            const res = await fetch('/api/ingestion', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ who, method }),
             });
+            if (res.ok) {
+                const data = await res.json().catch(() => null);
+                const newLevel = data && typeof data.peak_level === 'number' ? data.peak_level : null;
+                if (statusEl) {
+                    if (method === 'sober' || newLevel === 0) {
+                        statusEl.textContent = '☕ Sober';
+                    } else {
+                        const label = LEVEL_LABELS_FRONT[Math.min(5, newLevel || 1)] || 'Stoned';
+                        const leaves = '🌿'.repeat(Math.min(5, newLevel || 1));
+                        statusEl.textContent = `${leaves} ${label} · ${method} at ${t}`;
+                    }
+                }
+            }
         } catch (e) { console.error('ingestion failed', e); }
     }
 
@@ -1472,29 +2675,23 @@
     // ═══════════════════════════════════════════════════════════
     function setMood(mood) {
         if (!mood) return;
+        state.currentMood = mood;
         const gradient = $('moodGradient');
         gradient.setAttribute('data-mood', mood);
-        const mm = $('masterMood');
-        mm.classList.remove('hidden');
-        const color = MOOD_COLORS[mood];
-        const textColor = MOOD_TEXT_COLORS[mood];
-        $('masterMoodDot').style.background = color;
-        $('masterMoodLabel').style.color = textColor;
-        $('masterMoodLabel').textContent = mood;
-        mm.style.background = color + '26';
-        mm.style.borderColor = color + '4D';
+        // The Movie Mode button is now the primary mood indicator —
+        // re-render it so the new theme + badge text apply.
+        applyMovieModeButtonState();
     }
 
-    let standbyTapCount = 0, standbyTapTimer = null;
     function handleStandbyTap() {
         if (!state.session || state.session.status !== 'active') return;
-        standbyTapCount++;
-        if (standbyTapCount === 1) {
-            standbyTapTimer = setTimeout(() => { standbyTapCount = 0; }, 400);
-        } else if (standbyTapCount >= 2) {
-            clearTimeout(standbyTapTimer);
-            standbyTapCount = 0;
-            requestStandby(!state.standby);
+        // Single-tap toggle. If already in away mode and standby is requested,
+        // exit away first so the server can transition cleanly to standby.
+        if (state.standby) {
+            requestStandby(false);
+        } else {
+            if (state.away) toggleAway();
+            requestStandby(true);
         }
     }
 
@@ -1511,31 +2708,30 @@
 
     function applyStandbyState(on) {
         state.standby = !!on;
-        const dot = $('statusDot'), label = $('statusLabel'), gradient = $('moodGradient');
+        const gradient = $('moodGradient');
         const chat = $('chatArea'), reactions = $('quickReactions'), input = $('inputArea');
+        const verdicts = $('verdictReactions');
         const shield = $('standbyBtn'), mm = $('masterMood');
         if (state.standby) {
-            dot.classList.add('standby');
-            label.className = 'status-label standby';
-            label.textContent = 'Standby';
             gradient.classList.add('standby');
             chat.classList.add('standby-dim');
             reactions.classList.add('standby-dim');
+            if (verdicts) verdicts.classList.add('standby-dim');
             input.classList.add('standby-dim');
             shield.classList.add('standby-active');
-            mm.style.opacity = '0.3';
+            if (mm) mm.style.opacity = '0.3';
         } else {
-            dot.classList.remove('standby');
-            label.className = 'status-label live';
-            label.textContent = 'Live';
             gradient.classList.remove('standby');
             chat.classList.remove('standby-dim');
             reactions.classList.remove('standby-dim');
+            if (verdicts) verdicts.classList.remove('standby-dim');
             input.classList.remove('standby-dim');
             shield.classList.remove('standby-active');
-            mm.style.opacity = '1';
+            if (mm) mm.style.opacity = '1';
         }
+        applyMovieModeButtonState();
         updateInputAvailability();
+        updateWakeLock();
     }
 
     // Deprecated alias — left in case existing code references it.
@@ -1543,24 +2739,28 @@
 
     function applyAwayState(on) {
         state.away = !!on;
-        const btn = $('awayBtn');
-        btn.classList.toggle('active', state.away);
         if (state.away) {
             if (!state.awayStart) state.awayStart = Date.now();
-            btn.innerHTML = '▶<span class="tip">Back (auto catch-up)</span><span class="away-timer" id="awayTimer">0:00</span>';
             if (!state.awayInterval) {
                 state.awayInterval = setInterval(() => {
                     const s = Math.floor((Date.now() - state.awayStart) / 1000);
+                    const stamp = Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60);
                     const timer = $('awayTimer');
-                    if (timer) timer.textContent = Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60);
+                    if (timer) timer.textContent = stamp;
+                    // Mirror onto the Movie Mode badge so the duration is
+                    // visible at a glance.
+                    if (state.away) {
+                        const badge = $('statusBadge');
+                        if (badge) badge.textContent = 'AWAY · ' + stamp;
+                    }
                 }, 1000);
             }
         } else {
             clearInterval(state.awayInterval);
             state.awayInterval = null;
             state.awayStart = null;
-            btn.innerHTML = '⏸<span class="tip">Away · auto catch-up on return</span><span class="away-timer" id="awayTimer">0:00</span>';
         }
+        applyMovieModeButtonState();
         updateInputAvailability();
     }
 
@@ -1651,7 +2851,14 @@
                 syncSettingsUI();
                 break;
             case 'ingestion':
-                // Already reflected locally on click; ignore unless different origin
+                // Server is the source of truth — sync local ingestion state
+                // so the popover highlight stays accurate.
+                if (msg.who === 'eli') {
+                    state.eliIngestion = {
+                        level: Number(msg.peak_level || 0),
+                        method: msg.method === 'sober' ? null : (msg.method || null),
+                    };
+                }
                 break;
             case 'usage':
                 state.usage = msg.value;
@@ -1719,7 +2926,13 @@
             if (len >= 1000) counter.classList.add('danger');
             else if (len >= 900) counter.classList.add('warning');
         };
-        // Enter = newline. Sending is explicit via the Send button.
+        // Enter sends. Shift+Enter inserts a newline.
+        ta.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
         ta.addEventListener('input', () => {
             ta.style.height = 'auto';
             ta.style.height = Math.min(ta.scrollHeight, 100) + 'px';
@@ -1826,7 +3039,7 @@
     }
 
     function wireReactions() {
-        document.querySelectorAll('.react-btn').forEach(btn => {
+        document.querySelectorAll('.react-btn, .verdict-btn').forEach(btn => {
             // Skip the "More" toggle — its onclick is wired inline.
             if (btn.classList.contains('react-more')) return;
             btn.addEventListener('click', () => {
