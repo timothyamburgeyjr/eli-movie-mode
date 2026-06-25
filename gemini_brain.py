@@ -24,6 +24,15 @@ log = logging.getLogger(__name__)
 RETRY_BACKOFFS = (2.0, 4.0, 8.0)
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
+# When a model exhausts its retries on a transient error (esp. 503 "high
+# demand", which hits the cheap Lite tier hardest), fall back to a sturdier
+# model that draws from a different capacity pool. flash-lite → flash;
+# pro → flash (still multimodal, so scene analysis keeps working).
+FALLBACK_MODEL = {
+    "gemini-2.5-flash-lite": "gemini-2.5-flash",
+    "gemini-2.5-pro": "gemini-2.5-flash",
+}
+
 
 SCENE_SYSTEM_PROMPT_TEMPLATE = (
     "You are narrating Tim's internal experience of a movie scene to his AI "
@@ -774,29 +783,47 @@ class GeminiBrain:
         # location description) that aren't addressed to/about the companion.
         if inject_companion and self._companion_preamble and getattr(config, "system_instruction", None):
             config.system_instruction = self._companion_preamble + config.system_instruction
+
+        # Try the chosen model; on exhausted transient failures, fall back to
+        # a sturdier model (different capacity pool) before giving up.
+        models_to_try = [chosen_model]
+        fallback = FALLBACK_MODEL.get(chosen_model)
+        if fallback and fallback != chosen_model:
+            models_to_try.append(fallback)
+
         last_err: Optional[Exception] = None
-        for attempt in range(len(RETRY_BACKOFFS)):
-            try:
-                return await client.aio.models.generate_content(
-                    model=chosen_model,
-                    contents=contents,
-                    config=config,
-                )
-            except genai_errors.APIError as e:
-                last_err = e
-                status = getattr(e, "code", None) or getattr(e, "status_code", None)
-                if status in RETRYABLE_STATUS and attempt + 1 < len(RETRY_BACKOFFS):
-                    delay = RETRY_BACKOFFS[attempt]
-                    log.warning(
-                        "%s: Gemini %s, retrying in %.0fs (attempt %d/%d)",
-                        label, status, delay, attempt + 1, len(RETRY_BACKOFFS),
+        for m_idx, run_model in enumerate(models_to_try):
+            is_last_model = m_idx == len(models_to_try) - 1
+            if m_idx > 0:
+                log.warning("%s: falling back to %s after %s failed", label, run_model, chosen_model)
+            for attempt in range(len(RETRY_BACKOFFS)):
+                try:
+                    return await client.aio.models.generate_content(
+                        model=run_model,
+                        contents=contents,
+                        config=config,
                     )
-                    await asyncio.sleep(delay)
-                    continue
-                raise GeminiError(f"{label} failed: {status} {e}") from e
-            except Exception as e:
-                last_err = e
-                raise GeminiError(f"{label} failed: {e}") from e
+                except genai_errors.APIError as e:
+                    last_err = e
+                    status = getattr(e, "code", None) or getattr(e, "status_code", None)
+                    if status not in RETRYABLE_STATUS:
+                        # Not transient (e.g. 400) — fallback won't help.
+                        raise GeminiError(f"{label} failed: {status} {e}") from e
+                    if attempt + 1 < len(RETRY_BACKOFFS):
+                        delay = RETRY_BACKOFFS[attempt]
+                        log.warning(
+                            "%s: Gemini %s on %s, retrying in %.0fs (attempt %d/%d)",
+                            label, status, run_model, delay, attempt + 1, len(RETRY_BACKOFFS),
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    # Retries exhausted for this model.
+                    if not is_last_model:
+                        break  # try the fallback model
+                    raise GeminiError(f"{label} failed: {status} {e}") from e
+                except Exception as e:
+                    last_err = e
+                    raise GeminiError(f"{label} failed: {e}") from e
         raise GeminiError(f"{label} exhausted retries: {last_err}")
 
     # ─── Scene analysis ─────────────────────────────────────────
