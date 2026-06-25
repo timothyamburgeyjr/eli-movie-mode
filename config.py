@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     live_photos_dir: str = "data/live_photos"
     live_audio_dir: str = "data/live_audio"
 
+    # Obsidian vault that holds the AI family. `vault_root` is the vault's
+    # top folder; each member's registry `vault_dir` is relative to it.
+    # `ai_registry_path` points at the parseable roster table.
+    vault_root: str = "D:/Vault"
+    ai_registry_path: str = "D:/Vault/20 - The AI Family/_AI Registry.md"
+
     plex_poll_interval_seconds: int = 5
     default_capture_seconds: int = 30
     # Seedbox reverse-proxies often present a cert that doesn't match the hostname;

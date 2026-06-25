@@ -94,6 +94,8 @@ DEFAULT_SETTINGS = {
     "trivia_grounding": "true",
     "context_exchanges": "5",
     "auto_journal": "true",
+    # Which family member (registry key) Movie Mode is currently talking to.
+    "active_character": "eli",
 }
 
 

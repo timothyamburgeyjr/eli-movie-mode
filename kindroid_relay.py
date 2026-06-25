@@ -138,6 +138,7 @@ def build_payload(
 async def send_message(
     message: str,
     *,
+    ai_id: Optional[str] = None,
     image_urls: Optional[list[str]] = None,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> dict[str, Any]:
@@ -152,7 +153,10 @@ async def send_message(
             "status": int,            # HTTP status of the successful call
         }
     """
-    if not settings.kindroid_api_key or not settings.kindroid_ai_id:
+    # Per-message ai_id (the selected family member) overrides the configured
+    # default, so we can route to any Kindroid character on the account.
+    effective_ai_id = ai_id or settings.kindroid_ai_id
+    if not settings.kindroid_api_key or not effective_ai_id:
         raise KindroidError("Kindroid credentials not configured")
     if not message or not message.strip():
         raise KindroidError("Empty message")
@@ -162,7 +166,7 @@ async def send_message(
         )
 
     payload: dict[str, Any] = {
-        "ai_id": settings.kindroid_ai_id,
+        "ai_id": effective_ai_id,
         "message": message,
         # CRITICAL: Kindroid's API now defaults to streaming (SSE). Without
         # this flag we read only the first keepalive byte before the stream

@@ -790,6 +790,15 @@
 <div class="settings-panel" id="settingsPanel">
     <h2>Settings <button class="close-btn" onclick="toggleSettings()">✕</button></h2>
     <div class="setting-group">
+        <span class="setting-label">Watching with</span>
+        <div class="toggle-row"><span class="label">Family member</span>
+            <select class="setting-select" id="activeCharacter" data-setting="active_character" style="width:150px;" onchange="persistSelect(this)">
+            </select>
+        </div>
+        <span class="setting-desc">Routes commentary to this family member's Kindroid. Switch any time.</span>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
         <span class="setting-label">Display</span>
         <div class="toggle-row"><span class="label">Emotes (narrative text)</span><div class="toggle" data-setting="emotes_visible" onclick="toggleSetting(this)"></div></div>
         <div class="toggle-row"><span class="label">Trivia cards</span><div class="toggle" data-setting="trivia_visible" onclick="toggleSetting(this)"></div></div>
@@ -865,6 +874,7 @@
         movies: [],
         lastSession: null,
         settings: {},
+        characters: [],
         usage: 0,
         budget: 1000,
         standby: false,
@@ -2203,6 +2213,26 @@
             ' exchange' + (state.lastSession.exchanges === 1 ? '' : 's') + ' · ' + state.lastSession.runtime;
     }
 
+    function populateCharacterSelect() {
+        const sel = $('activeCharacter');
+        if (!sel || !state.characters.length) return;
+        sel.innerHTML = state.characters
+            .map(c => `<option value="${c.key}">${c.name}</option>`)
+            .join('');
+    }
+
+    async function loadCharacters() {
+        try {
+            const res = await fetch('/api/characters');
+            if (!res.ok) return;
+            const data = await res.json();
+            state.characters = data.characters || [];
+            populateCharacterSelect();
+            const sel = $('activeCharacter');
+            if (sel && data.active) sel.value = data.active;
+        } catch (e) { console.error('character load failed', e); }
+    }
+
     function syncSettingsUI() {
         // Toggles
         document.querySelectorAll('.toggle[data-setting]').forEach(t => {
@@ -2210,6 +2240,8 @@
             const on = String(state.settings[key] ?? 'true') === 'true';
             t.classList.toggle('on', on);
         });
+        // Character dropdown options must exist before we set its value below.
+        populateCharacterSelect();
         // Selects
         document.querySelectorAll('.setting-select[data-setting]').forEach(sel => {
             const key = sel.dataset.setting;
@@ -3060,6 +3092,7 @@
     document.addEventListener('DOMContentLoaded', async () => {
         wireInput();
         wireReactions();
+        await loadCharacters();
         try {
             const res = await fetch('/api/session');
             if (res.ok) applySnapshot(await res.json());

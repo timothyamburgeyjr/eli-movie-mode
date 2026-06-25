@@ -22,6 +22,7 @@ from itsdangerous import BadSignature, URLSafeSerializer
 
 from config import settings
 from context_manager import build_session_history_for_gemini
+import characters
 from database import db, row_to_dict, rows_to_list
 from gemini_brain import GeminiError, gemini_brain
 from kindroid_relay import KindroidError, build_payload, parse_reply, send_message
@@ -529,6 +530,12 @@ async def _latest_scene_description(session_id: str) -> str:
     return (row["scene_context"] or "") if row else ""
 
 
+async def _active_character() -> Optional["characters.Character"]:
+    """The family member Movie Mode is currently talking to (per settings)."""
+    key = await db.get_setting("active_character")
+    return characters.resolve_or_default(key)
+
+
 async def _send_to_kindroid_and_render(
     session_id: str,
     *,
@@ -582,8 +589,10 @@ async def _send_to_kindroid_and_render(
         "kindroid SEND session=%s payload_chars=%d image_urls=%d",
         session_id, len(payload), len(image_urls or []),
     )
+    active = await _active_character()
+    ai_id = active.ai_id if active else None
     try:
-        reply = await send_message(payload, image_urls=image_urls)
+        reply = await send_message(payload, ai_id=ai_id, image_urls=image_urls)
         raw_text = (reply.get("raw") or "")
         log.info(
             "kindroid REPLY session=%s raw_chars=%d stripped_chars=%d segments=%d emote_chars=%d spoken_chars=%d",
@@ -1448,6 +1457,17 @@ async def api_get_settings(_auth: dict = Depends(require_auth)):
     all_settings = await db.get_all_settings()
     all_settings.pop("password_hash", None)
     return JSONResponse(all_settings)
+
+
+@app.get("/api/characters")
+async def api_get_characters(_auth: dict = Depends(require_auth)):
+    """Selectable family members for the Movie Mode character dropdown."""
+    roster = [
+        {"key": c.key, "name": c.name, "first_name": c.first_name}
+        for c in characters.selectable()
+    ]
+    active = await db.get_setting("active_character") or characters.DEFAULT_KEY
+    return JSONResponse({"characters": roster, "active": active})
 
 
 @app.put("/api/settings/{key}")
