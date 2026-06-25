@@ -91,7 +91,9 @@
         }
         .presence-block { display: flex; flex-direction: column; gap: 10px; align-items: center; }
         .presence-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+        .presence-desc { font-size: 0.78rem; color: var(--text-muted); font-style: italic; text-align: center; max-width: 300px; line-height: 1.4; }
         .presence-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 320px; }
+        .presence-chip:disabled { opacity: 0.5; cursor: wait; }
         .presence-chip {
             padding: 6px 12px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border);
             color: var(--text-muted); font-size: 0.8rem; cursor: pointer; transition: all 0.12s; user-select: none;
@@ -899,6 +901,8 @@
         peoplePresets: [],
         activeVenue: 'living_room',
         presentPeople: [],
+        venueDescriptions: {},
+        venueDescribing: false,
         usage: 0,
         budget: 1000,
         standby: false,
@@ -2271,11 +2275,16 @@
             state.peoplePresets = d.people || [];
             state.activeVenue = d.active_venue || 'living_room';
             state.presentPeople = d.present_people || [];
+            state.venueDescriptions = d.venue_descriptions || {};
             renderPresence();
         } catch (e) { console.error('presence load failed', e); }
     }
 
     function renderPresence() {
+        const desc = state.venueDescriptions[state.activeVenue] || '';
+        const descHtml = state.venueDescribing
+            ? `<span class="presence-desc">Describing…</span>`
+            : (desc ? `<span class="presence-desc">“${desc}”</span>` : '');
         ['startPresence', 'settingsPresence'].forEach(containerId => {
             const box = $(containerId);
             if (!box) return;
@@ -2288,11 +2297,53 @@
             box.innerHTML =
                 `<span class="presence-label">Where</span>` +
                 `<select class="start-select presence-venue" onchange="setVenue(this.value)">${venueOpts}</select>` +
+                descHtml +
+                `<div class="presence-chips">` +
+                    `<button type="button" class="presence-chip" onclick="describeVenuePhoto()" ${state.venueDescribing ? 'disabled' : ''}>📷 Photo</button>` +
+                    `<button type="button" class="presence-chip" onclick="describeVenueText()" ${state.venueDescribing ? 'disabled' : ''}>✏️ Describe</button>` +
+                `</div>` +
                 `<span class="presence-label">Who else is here</span>` +
                 `<div class="presence-chips">${chips}</div>`;
             const sel = box.querySelector('.presence-venue');
             if (sel) sel.value = state.activeVenue;
         });
+    }
+
+    function describeVenuePhoto() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = () => {
+            if (input.files && input.files[0]) uploadVenueDescription({ file: input.files[0] });
+        };
+        input.click();
+    }
+
+    function describeVenueText() {
+        const note = window.prompt('Describe this room (Gemini will polish it):', '');
+        if (note && note.trim()) uploadVenueDescription({ note: note.trim() });
+    }
+
+    async function uploadVenueDescription({ file = null, note = '' }) {
+        state.venueDescribing = true;
+        renderPresence();
+        try {
+            const fd = new FormData();
+            fd.append('venue', state.activeVenue);
+            if (note) fd.append('note', note);
+            if (file) fd.append('photo', file);
+            const res = await fetch('/api/venue-describe', { method: 'POST', body: fd });
+            if (res.ok) {
+                const d = await res.json();
+                state.venueDescriptions[d.venue] = d.description || '';
+            } else {
+                console.error('venue describe failed', res.status);
+            }
+        } catch (e) { console.error('venue describe failed', e); }
+        finally {
+            state.venueDescribing = false;
+            renderPresence();
+        }
     }
 
     async function setVenue(value) {
@@ -3000,6 +3051,10 @@
                 else if (msg.key === 'active_venue') { state.activeVenue = msg.value; renderPresence(); }
                 else if (msg.key === 'present_people') {
                     try { state.presentPeople = JSON.parse(msg.value || '[]'); } catch (e) {}
+                    renderPresence();
+                }
+                else if (msg.key === 'venue_descriptions') {
+                    try { state.venueDescriptions = JSON.parse(msg.value || '{}'); } catch (e) {}
                     renderPresence();
                 }
                 break;

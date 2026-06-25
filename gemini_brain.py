@@ -282,6 +282,15 @@ LIVE_AUDIO_SYSTEM_PROMPT = (
     "invent connections."
 )
 
+LOCATION_SYSTEM_PROMPT = (
+    "You write a short, vivid description of a physical room or place where "
+    "Tim watches movies, so his AI companion has a sense of the space. "
+    "Concrete and sensory — furniture, layout, lighting, textures, where "
+    "someone would sit or curl up. THIRD person about the room only: no "
+    "people, no movie, no second-person address, no Tim. 1-2 sentences, "
+    "under 240 characters. Return only the description."
+)
+
 CONDENSE_SYSTEM_PROMPT = (
     "Condense the user's text to fit strictly under the target character count. "
     "Preserve the key narrative details, sensory language, and mood. Do not "
@@ -755,13 +764,15 @@ class GeminiBrain:
         config: types.GenerateContentConfig,
         label: str,
         model: Optional[str] = None,
+        inject_companion: bool = True,
     ) -> Any:
         client = self._ensure_client()
         chosen_model = model or self.text_model
         # Prepend the active-companion override so every prompt's hardcoded
         # "Eli" references resolve to the selected family member. Skipped for
-        # calls with no system_instruction (e.g. pure JSON utility calls).
-        if self._companion_preamble and getattr(config, "system_instruction", None):
+        # calls with no system_instruction, and for utility calls (e.g. a
+        # location description) that aren't addressed to/about the companion.
+        if inject_companion and self._companion_preamble and getattr(config, "system_instruction", None):
             config.system_instruction = self._companion_preamble + config.system_instruction
         last_err: Optional[Exception] = None
         for attempt in range(len(RETRY_BACKOFFS)):
@@ -1480,6 +1491,58 @@ Return ONLY the JSON object, nothing else.
         )
         return {
             "narration": (response.text or "").strip().strip('"'),
+            "latency_ms": int((perf_counter() - start) * 1000),
+            "usage": usage,
+        }
+
+    async def describe_location(
+        self,
+        *,
+        photo_path: Optional[Path] = None,
+        mime_type: str = "image/jpeg",
+        note: str = "",
+        venue_label: str = "",
+    ) -> dict[str, Any]:
+        """Turn a photo and/or a typed note into a saved venue description.
+
+        Uses the vision model when a photo is supplied, the cheap text model
+        for note-only. Companion preamble is suppressed — this describes a
+        room, not the kin.
+        """
+        self._ensure_client()
+        start = perf_counter()
+        if photo_path is None and not note.strip():
+            raise GeminiError("describe_location needs a photo or a note")
+
+        parts: list[Any] = []
+        if photo_path is not None:
+            photo_bytes = await asyncio.to_thread(Path(photo_path).read_bytes)
+            parts.append(types.Part.from_bytes(data=photo_bytes, mime_type=mime_type))
+
+        instr: list[str] = []
+        if venue_label:
+            instr.append(f"This is Tim's {venue_label.lower()}.")
+        if photo_path is not None:
+            instr.append("Describe the room shown in the photo.")
+        if note.strip():
+            instr.append(f"Tim's own notes to base it on: {note.strip()}")
+        prompt = " ".join(instr)
+
+        model = self.scene_model if photo_path is not None else self.text_model
+        config = types.GenerateContentConfig(
+            system_instruction=LOCATION_SYSTEM_PROMPT,
+            temperature=0.7,
+            max_output_tokens=4096,
+        )
+        response = await self._call_with_retry(
+            [*parts, prompt], config, "describe_location",
+            model=model, inject_companion=False,
+        )
+        usage = await self._track_call(
+            response, call_type="location", model=model, grounded=False,
+        )
+        return {
+            "description": (response.text or "").strip().strip('"'),
             "latency_ms": int((perf_counter() - start) * 1000),
             "usage": usage,
         }

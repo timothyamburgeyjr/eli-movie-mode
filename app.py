@@ -1549,6 +1549,65 @@ async def api_get_presence(_auth: dict = Depends(require_auth)):
     })
 
 
+@app.post("/api/venue-describe")
+async def api_venue_describe(
+    venue: str = Form(...),
+    note: str = Form(""),
+    photo: UploadFile = File(None),
+    _auth: dict = Depends(require_auth),
+):
+    """Seed a venue's saved description from a photo and/or a typed note.
+
+    Gemini turns the photo/note into a short room description that we store
+    in `venue_descriptions[venue]` and reuse in future briefings. One-time
+    per venue — not per session.
+    """
+    if not presence.venue_label(venue):
+        raise HTTPException(status_code=400, detail="Unknown venue")
+    if photo is None and not note.strip():
+        raise HTTPException(status_code=400, detail="Provide a photo or a note")
+
+    tmp_path: Optional[Path] = None
+    mime = "image/jpeg"
+    try:
+        if photo is not None:
+            mime = (photo.content_type or "image/jpeg").lower()
+            if not mime.startswith("image/"):
+                raise HTTPException(status_code=415, detail=f"Unsupported media type: {mime}")
+            ext = _PHOTO_EXT_BY_MIME.get(mime, "jpg")
+            tmp_dir = Path(settings.live_photos_dir) / "_venue_tmp"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            tmp_path = tmp_dir / f"{uuid.uuid4().hex}.{ext}"
+            await asyncio.to_thread(tmp_path.write_bytes, await photo.read())
+
+        try:
+            result = await gemini_brain.describe_location(
+                photo_path=tmp_path, mime_type=mime, note=note,
+                venue_label=presence.venue_label(venue),
+            )
+        except GeminiError as e:
+            raise HTTPException(status_code=502, detail=f"Gemini error: {e}")
+
+        description = (result.get("description") or "").strip()
+        _, _, descriptions = await _presence_state()
+        descriptions[venue] = description
+        await db.set_setting("venue_descriptions", json.dumps(descriptions))
+        await manager.broadcast({
+            "type": "setting_updated", "key": "venue_descriptions",
+            "value": json.dumps(descriptions),
+        })
+        active = await db.get_active_session()
+        if active:
+            await _broadcast_cost(active["id"])
+        return JSONResponse({"venue": venue, "description": description})
+    finally:
+        if tmp_path is not None:
+            try:
+                await asyncio.to_thread(tmp_path.unlink)
+            except OSError:
+                pass
+
+
 @app.put("/api/settings/{key}")
 async def api_put_setting(key: str, request: Request, _auth: dict = Depends(require_auth)):
     if key == "password_hash":
