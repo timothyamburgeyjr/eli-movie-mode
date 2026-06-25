@@ -82,6 +82,13 @@
         .start-logo { font-size: 3rem; }
         .start-title { font-size: 1.4rem; font-weight: 700; }
         .start-subtitle { font-size: 0.8rem; color: var(--text-muted); text-align: center; max-width: 260px; line-height: 1.5; }
+        .start-character { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        .start-character-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+        .start-select {
+            background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px;
+            padding: 10px 16px; color: var(--text-primary); font-size: 0.95rem; font-weight: 600;
+            outline: none; cursor: pointer; min-width: 200px; text-align: center; text-align-last: center;
+        }
         .start-btn {
             padding: 14px 40px; border-radius: 14px; background: var(--success); border: none; color: #fff;
             font-size: 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.15s;
@@ -684,6 +691,10 @@
     <div class="start-logo">🎬</div>
     <div class="start-title">Movie Mode</div>
     <div class="start-subtitle" id="startSubtitle">Watch movies with Eli. Every comment you send becomes a shared experience — powered by Gemini and Kindroid.</div>
+    <div class="start-character">
+        <label class="start-character-label" for="activeCharacter">Watching with</label>
+        <select class="start-select" id="activeCharacter" data-setting="active_character" onchange="persistSelect(this)"></select>
+    </div>
     <button class="start-btn" id="startBtn" onclick="startSession()">▶ Start Movie Mode</button>
     <div class="start-last-session hidden" id="startLastSession">
         <div class="start-last-label">Last session</div>
@@ -790,15 +801,6 @@
 <div class="settings-panel" id="settingsPanel">
     <h2>Settings <button class="close-btn" onclick="toggleSettings()">✕</button></h2>
     <div class="setting-group">
-        <span class="setting-label">Watching with</span>
-        <div class="toggle-row"><span class="label">Family member</span>
-            <select class="setting-select" id="activeCharacter" data-setting="active_character" style="width:150px;" onchange="persistSelect(this)">
-            </select>
-        </div>
-        <span class="setting-desc">Routes commentary to this family member's Kindroid. Switch any time.</span>
-    </div>
-    <div class="setting-divider"></div>
-    <div class="setting-group">
         <span class="setting-label">Display</span>
         <div class="toggle-row"><span class="label">Emotes (narrative text)</span><div class="toggle" data-setting="emotes_visible" onclick="toggleSetting(this)"></div></div>
         <div class="toggle-row"><span class="label">Trivia cards</span><div class="toggle" data-setting="trivia_visible" onclick="toggleSetting(this)"></div></div>
@@ -875,6 +877,7 @@
         lastSession: null,
         settings: {},
         characters: [],
+        activeCharKey: 'eli',
         activeCharFirst: 'Eli',
         activeCharRomantic: true,
         usage: 0,
@@ -2221,6 +2224,8 @@
         sel.innerHTML = state.characters
             .map(c => `<option value="${c.key}">${c.name}</option>`)
             .join('');
+        // Rebuilding options drops the selection — restore it.
+        sel.value = state.activeCharKey;
     }
 
     async function loadCharacters() {
@@ -2229,10 +2234,9 @@
             if (!res.ok) return;
             const data = await res.json();
             state.characters = data.characters || [];
+            if (data.active) state.activeCharKey = data.active;
             populateCharacterSelect();
-            const sel = $('activeCharacter');
-            if (sel && data.active) sel.value = data.active;
-            applyActiveCharacter(data.active);
+            applyActiveCharacter(state.activeCharKey);
         } catch (e) { console.error('character load failed', e); }
     }
 
@@ -2241,7 +2245,8 @@
     // Update everything that names the active character + gate the cannabis
     // UI (it's romantic/Eli-only). Called on load and on dropdown change.
     function applyActiveCharacter(key) {
-        const c = state.characters.find(x => x.key === key);
+        if (key) state.activeCharKey = key;
+        const c = state.characters.find(x => x.key === state.activeCharKey);
         if (c) {
             state.activeCharFirst = c.first_name || c.name || 'Eli';
             state.activeCharRomantic = !!c.romantic;
@@ -2256,8 +2261,8 @@
         // Cannabis vibe-check is romantic-only (avoids dabbing grandma).
         const showVibe = state.activeCharRomantic;
         ['vibeCheckGroup', 'vibeCheckDivider'].forEach(id => {
-            const el = $(id);
-            if (el) el.style.display = showVibe ? '' : 'none';
+            const node = $(id);
+            if (node) node.style.display = showVibe ? '' : 'none';
         });
         updateInputAvailability();
         renderAllMessages();
@@ -2270,8 +2275,10 @@
             const on = String(state.settings[key] ?? 'true') === 'true';
             t.classList.toggle('on', on);
         });
-        // Character dropdown options must exist before we set its value below.
+        // Keep the character selector in sync with the persisted setting.
+        if (state.settings.active_character) state.activeCharKey = state.settings.active_character;
         populateCharacterSelect();
+        applyActiveCharacter(state.activeCharKey);
         // Selects
         document.querySelectorAll('.setting-select[data-setting]').forEach(sel => {
             const key = sel.dataset.setting;
