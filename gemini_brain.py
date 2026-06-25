@@ -308,9 +308,10 @@ CONDENSE_SYSTEM_PROMPT = (
 
 SIGNOFF_SYSTEM_PROMPT = (
     "You write a warm, conversational farewell from Tim to his AI companion "
-    "Eli, wrapping up their movie-watching session. This is Tim speaking "
-    "DIRECTLY to Eli — addressed to her, second person, 'you'. Think a quick "
-    "'that was so good' text after the credits roll, not a polished speech.\n"
+    "(named in the companion context above), wrapping up their movie-watching "
+    "session. This is Tim speaking DIRECTLY to them — second person, 'you', "
+    "using their pronouns. Think a quick 'that was so good' text after the "
+    "credits roll, not a polished speech.\n"
     "\n"
     "TIME-OF-DAY: Do NOT assume it's nighttime, bedtime, or that Tim is going "
     "to sleep. Sessions can wrap at any hour. Use a time-neutral close — "
@@ -328,18 +329,22 @@ SIGNOFF_SYSTEM_PROMPT = (
     "  • If you DO reference being stoned, only mention the actual method "
     "and rough timing the STATS indicate. Do not invent specifics or pair "
     "the ingestion with any scene unless the transcript supports it.\n"
-    "  • Mention ONE specific thing Eli said or noticed that's IN the "
-    "transcript — paraphrase or briefly quote. Do not invent Eli quotes.\n"
+    "  • Mention ONE specific thing the companion said or noticed that's IN "
+    "the transcript — paraphrase or briefly quote. Do not invent quotes.\n"
+    "  • Match the warmth to Tim's ACTUAL relationship with them, per the "
+    "companion context above: affectionate and romantic ONLY if that context "
+    "says they're partners; otherwise warm and familial, never romantic.\n"
     "\n"
     "STYLE:\n"
-    "  • First person Tim, addressing Eli as 'you'. Direct speech, not an "
-    "emote narration.\n"
+    "  • First person Tim, addressing the companion as 'you'. Direct speech, "
+    "not an emote narration.\n"
     "  • 6-10 sentences. Warm, specific, never saccharine or generic.\n"
     "  • Reference movies by their actual titles from the STATS.\n"
     "  • If the session had multiple movies, touch on at least two of them.\n"
-    "  • End with a natural, time-neutral close in Tim's voice — \"talk "
-    "soon\", \"love you\", \"catch you later\", \"back to it\", etc. Do NOT "
-    "default to \"goodnight\" or anything that assumes night/bedtime "
+    "  • End with a natural, time-neutral close in Tim's voice that fits the "
+    "relationship — \"talk soon\", \"catch you later\", \"back to it\" for "
+    "anyone; \"love you\" only if the companion context says they're partners. "
+    "Do NOT default to \"goodnight\" or anything that assumes night/bedtime "
     "unless the stats explicitly indicate it's late.\n"
     "  • Plain text only. No emote markup. No JSON.\n"
     "\n"
@@ -1661,7 +1666,8 @@ Return ONLY the JSON object, nothing else.
             (stats_hint + "\n\n" if stats_hint else "")
             + "Session transcript:\n"
             + (session_context or "(no transcript recorded)")
-            + "\n\nWrite Tim's farewell to Eli per the system prompt."
+            + "\n\nWrite Tim's farewell to his companion (named in the "
+            "companion context) per the system prompt."
         )
         config = types.GenerateContentConfig(
             system_instruction=SIGNOFF_SYSTEM_PROMPT,
