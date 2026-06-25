@@ -123,7 +123,29 @@ class Database:
                 "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                 (key, value),
             )
+        # One-time seed of canonical venue descriptions (from Tim's reference
+        # photos). Only fills an unset/empty value — never clobbers later edits
+        # made via the in-app describe flow.
+        await self._seed_venue_descriptions()
         await self.conn.commit()
+
+    async def _seed_venue_descriptions(self) -> None:
+        import presence
+        row = await self.fetch_one(
+            "SELECT value FROM settings WHERE key = 'venue_descriptions'"
+        )
+        current = (row["value"] if row else "") or ""
+        try:
+            existing = json.loads(current) if current.strip() else {}
+        except (ValueError, TypeError):
+            existing = {}
+        if existing:
+            return  # user (or a prior seed) already populated it
+        await self.conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('venue_descriptions', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (json.dumps(presence.SEED_VENUE_DESCRIPTIONS),),
+        )
 
     async def _ensure_column(self, table: str, column: str, coltype: str) -> None:
         assert self.conn is not None

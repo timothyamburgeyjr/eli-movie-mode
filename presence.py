@@ -37,6 +37,30 @@ PEOPLE: list[dict] = [
 _VENUE_BY_KEY = {v["key"]: v for v in VENUES}
 _PERSON_BY_KEY = {p["key"]: p for p in PEOPLE}
 
+# Canonical venue descriptions written from Tim's reference photos. Seeded
+# into the DB once (if the user hasn't set their own); the in-app photo/text
+# flow can overwrite any of them later. Room/space only — no people.
+SEED_VENUE_DESCRIPTIONS: dict[str, str] = {
+    "living_room": (
+        "A long, lived-in family room: a vaulted textured ceiling, a brass "
+        "ceiling fan, warm wood-look floors. A row of black leather recliners "
+        "with cupholders lines up beside soft brown couches facing the TV; the "
+        "walls are crowded with framed family photos above a lighthouse border."
+    ),
+    "bedroom": (
+        "A snug paneled bedroom: a sleigh-frame bed piled with pillows and "
+        "blankets under bright blue curtains, a book-topped dresser, a framed "
+        "painting — and in the corner, an L-shaped desk with dual monitors "
+        "where Tim watches while he works."
+    ),
+    "oasis_amphitheatre": (
+        "A wood-framed screen glows in an autumn-forest clearing at Bybrook "
+        "Manor, strung with warm café lights and ringed by flickering lanterns. "
+        "Adirondack chairs draped in plaid sit on a deep carpet of red-gold "
+        "leaves around a low table, a projector casting its beam through the dark."
+    ),
+}
+
 
 def venue_label(key: Optional[str]) -> str:
     v = _VENUE_BY_KEY.get((key or "").lower())
