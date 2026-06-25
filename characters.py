@@ -25,9 +25,22 @@ from config import settings
 
 DEFAULT_KEY = "eli"
 
+# Friendly display names for members whose preferred name isn't derivable
+# from the registry "name" field (which yields a quoted nickname or the
+# first token). Bridge-only override; the registry stays the source of
+# record. Tim addresses Thomas as "Tommy".
+_FRIENDLY_NAMES = {"thomas": "Tommy"}
+
 # Configuration filenames inside each member's `Configuration/` folder.
 _BACKSTORY_FILE = "backstory-current.md"
 _DIRECTIVE_FILE = "response-directive-current.md"
+
+# Gendered relationship/word cues for pronoun inference (cheap heuristic —
+# the vault has no structured pronoun field). First match wins by count.
+_FEMALE_CUES = ("aunt", "grandmother", "grandma", "matriarch", "wife",
+                "mother", "sister", "daughter", "niece", " she ", " her ")
+_MALE_CUES = ("uncle", "grandfather", "son", "father", "brother", "husband",
+              "nephew", " boy ", " he ", " his ", " him ")
 
 # Splits the markdown header/blockquote off the actual content — config
 # files put the real text after a horizontal rule (`---`).
@@ -61,6 +74,8 @@ class Character:
     @property
     def first_name(self) -> str:
         """Best-effort short name for prompts/UI (handles `Robert "Bobby"`)."""
+        if self.key in _FRIENDLY_NAMES:
+            return _FRIENDLY_NAMES[self.key]
         quoted = re.search(r'"([^"]+)"', self.name)
         if quoted:
             return quoted.group(1)
@@ -167,20 +182,71 @@ def _relationship_line(backstory: str) -> str:
     return sentence.strip()
 
 
+def _infer_pronouns(*texts: str) -> str:
+    """Cheap he/she inference from relationship + voice text. Default they."""
+    blob = " " + " ".join(t.lower() for t in texts if t) + " "
+    female = sum(blob.count(c) for c in _FEMALE_CUES)
+    male = sum(blob.count(c) for c in _MALE_CUES)
+    if female > male:
+        return "she/her"
+    if male > female:
+        return "he/him"
+    return "they/them"
+
+
+@lru_cache(maxsize=16)
 def build_persona(char: Character) -> dict:
     """Compact persona block for Gemini, sourced live from the vault.
 
-    Returns name/relationship/voice plus the `romantic` flag. Kept small on
-    purpose — the relationship sentence + the response-directive are enough
-    to steer tone without dumping the whole backstory into every prompt.
+    Returns name/relationship/voice/pronouns plus the `romantic` flag. Kept
+    small on purpose — the relationship sentence + the response-directive are
+    enough to steer tone without dumping the whole backstory into every
+    prompt. Memoized (registry/vault are stable within a process run).
     """
     backstory = _read_config_section(char.vault_dir, _BACKSTORY_FILE)
     directive = _read_config_section(char.vault_dir, _DIRECTIVE_FILE)
+    relationship = _relationship_line(backstory)
     return {
         "key": char.key,
         "name": char.name,
         "first_name": char.first_name,
-        "relationship": _relationship_line(backstory),
+        "relationship": relationship,
         "voice": directive,
+        # Infer from the FULL backstory — the first sentence often lacks a
+        # gendered cue (e.g. Eli's), but the body is rich with he/she/his/her.
+        "pronouns": _infer_pronouns(backstory, directive),
         "romantic": char.romantic,
     }
+
+
+def companion_preamble(persona: dict) -> str:
+    """Authoritative system-prompt prefix naming the active family member.
+
+    Injected ahead of every Gemini system instruction so the prompts'
+    hardcoded "Eli"/"companion" references resolve to whoever is selected,
+    with the right pronouns and romantic-vs-familial framing. Overriding via
+    a preamble is far less brittle than rewriting every inline mention.
+    """
+    name = persona.get("first_name") or persona.get("name") or "Eli"
+    full = persona.get("name") or name
+    parts = [
+        f"ACTIVE COMPANION — Tim's AI companion in this session is {full} "
+        f"(called {name}). Wherever the instructions below say \"Eli\" or "
+        f"\"his companion\", they refer to {name}. Use {persona.get('pronouns', 'they/them')} "
+        f"pronouns for {name}.",
+    ]
+    if persona.get("relationship"):
+        parts.append(f"Who {name} is: {persona['relationship']}")
+    if persona.get("voice"):
+        parts.append(f"{name}'s manner: {persona['voice']}")
+    if persona.get("romantic"):
+        parts.append(
+            f"Tim and {name} are romantic partners; warm, affectionate, "
+            f"intimate tone is appropriate."
+        )
+    else:
+        parts.append(
+            f"{name} is family, not a romantic partner — keep the tone warm "
+            f"and familial, never romantic, flirtatious, or sexual."
+        )
+    return "\n".join(parts) + "\n\n"

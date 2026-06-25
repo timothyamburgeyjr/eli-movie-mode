@@ -57,6 +57,9 @@ async def lifespan(app: FastAPI):
     await db.connect()
     Path(settings.frames_dir).mkdir(parents=True, exist_ok=True)
 
+    # Prime Gemini with the persisted active character's persona.
+    await _refresh_active_companion()
+
     plex_monitor.add_listener(_on_plex_event)
     await plex_monitor.start()
 
@@ -536,6 +539,22 @@ async def _active_character() -> Optional["characters.Character"]:
     return characters.resolve_or_default(key)
 
 
+async def _refresh_active_companion() -> Optional["characters.Character"]:
+    """Resolve the active character and push their persona into Gemini.
+
+    Called at startup and whenever the dropdown changes, so every Gemini
+    prompt is framed for whoever is selected without threading persona
+    through each pipeline method.
+    """
+    char = await _active_character()
+    if char:
+        preamble = characters.companion_preamble(characters.build_persona(char))
+        gemini_brain.set_companion(preamble)
+    else:
+        gemini_brain.set_companion("")
+    return char
+
+
 async def _send_to_kindroid_and_render(
     session_id: str,
     *,
@@ -591,6 +610,7 @@ async def _send_to_kindroid_and_render(
     )
     active = await _active_character()
     ai_id = active.ai_id if active else None
+    who = active.first_name if active else "Eli"
     try:
         reply = await send_message(payload, ai_id=ai_id, image_urls=image_urls)
         raw_text = (reply.get("raw") or "")
@@ -614,7 +634,7 @@ async def _send_to_kindroid_and_render(
             log.warning("kindroid returned empty body — surfacing system error to user")
             await db.add_message(
                 session_id, "system",
-                "Eli's response came back empty — Kindroid returned nothing. "
+                f"{who}'s response came back empty — Kindroid returned nothing. "
                 "Check API credentials, AI ID, or whether the message tripped a filter.",
             )
             snap_row = await db.fetch_one(
@@ -632,7 +652,7 @@ async def _send_to_kindroid_and_render(
         await db.add_message(
             session_id,
             "system",
-            f"Eli couldn't respond — Kindroid error: {detail}",
+            f"{who} couldn't respond — Kindroid error: {detail}",
         )
         snap_row = await db.fetch_one(
             "SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1",
@@ -1463,7 +1483,13 @@ async def api_get_settings(_auth: dict = Depends(require_auth)):
 async def api_get_characters(_auth: dict = Depends(require_auth)):
     """Selectable family members for the Movie Mode character dropdown."""
     roster = [
-        {"key": c.key, "name": c.name, "first_name": c.first_name}
+        {
+            "key": c.key,
+            "name": c.name,
+            "first_name": c.first_name,
+            # `romantic` gates the cannabis/vibe-check UI (Eli only).
+            "romantic": c.romantic,
+        }
         for c in characters.selectable()
     ]
     active = await db.get_setting("active_character") or characters.DEFAULT_KEY
@@ -1479,6 +1505,9 @@ async def api_put_setting(key: str, request: Request, _auth: dict = Depends(requ
     if value is None:
         raise HTTPException(status_code=400, detail="Missing value")
     await db.set_setting(key, str(value))
+    # Switching the active family member re-frames every Gemini prompt.
+    if key == "active_character":
+        await _refresh_active_companion()
     await manager.broadcast({"type": "setting_updated", "key": key, "value": str(value)})
     return JSONResponse({"key": key, "value": str(value)})
 

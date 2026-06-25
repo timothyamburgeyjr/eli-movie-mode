@@ -664,6 +664,14 @@ class GeminiBrain:
         # Text-only calls (briefing, trivia, reaction, condense) → Lite.
         self.scene_model = settings.gemini_scene_model
         self.text_model = settings.gemini_text_model
+        # Authoritative system-prompt prefix naming the active family member.
+        # Set by app.py before each pipeline run; injected in _call_with_retry
+        # so every prompt's hardcoded "Eli" resolves to whoever is selected.
+        self._companion_preamble: str = ""
+
+    def set_companion(self, preamble: str) -> None:
+        """Set (or clear) the companion-override preamble for prompts."""
+        self._companion_preamble = preamble or ""
 
     def _ensure_client(self) -> genai.Client:
         if self._client is None:
@@ -750,6 +758,11 @@ class GeminiBrain:
     ) -> Any:
         client = self._ensure_client()
         chosen_model = model or self.text_model
+        # Prepend the active-companion override so every prompt's hardcoded
+        # "Eli" references resolve to the selected family member. Skipped for
+        # calls with no system_instruction (e.g. pure JSON utility calls).
+        if self._companion_preamble and getattr(config, "system_instruction", None):
+            config.system_instruction = self._companion_preamble + config.system_instruction
         last_err: Optional[Exception] = None
         for attempt in range(len(RETRY_BACKOFFS)):
             try:

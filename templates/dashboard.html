@@ -683,7 +683,7 @@
 <div class="start-screen" id="startScreen">
     <div class="start-logo">🎬</div>
     <div class="start-title">Movie Mode</div>
-    <div class="start-subtitle">Watch movies with Eli. Every comment you send becomes a shared experience — powered by Gemini and Kindroid.</div>
+    <div class="start-subtitle" id="startSubtitle">Watch movies with Eli. Every comment you send becomes a shared experience — powered by Gemini and Kindroid.</div>
     <button class="start-btn" id="startBtn" onclick="startSession()">▶ Start Movie Mode</button>
     <div class="start-last-session hidden" id="startLastSession">
         <div class="start-last-label">Last session</div>
@@ -804,8 +804,8 @@
         <div class="toggle-row"><span class="label">Trivia cards</span><div class="toggle" data-setting="trivia_visible" onclick="toggleSetting(this)"></div></div>
         <div class="toggle-row"><span class="label">Mood gradient</span><div class="toggle" data-setting="mood_gradient" onclick="toggleSetting(this)"></div></div>
     </div>
-    <div class="setting-divider"></div>
-    <div class="setting-group">
+    <div class="setting-divider" id="vibeCheckDivider"></div>
+    <div class="setting-group" id="vibeCheckGroup">
         <span class="setting-label">🌿 Eli's Vibe Check</span>
         <span class="setting-desc">Each tap pushes Eli one level higher and resets her timer. The curve tapers her back down naturally. Tap Sober to reset to baseline.</span>
         <div style="padding:6px 0;">
@@ -875,6 +875,8 @@
         lastSession: null,
         settings: {},
         characters: [],
+        activeCharFirst: 'Eli',
+        activeCharRomantic: true,
         usage: 0,
         budget: 1000,
         standby: false,
@@ -1244,7 +1246,7 @@
             }
 
             const senderLine = el('div', { class: 'sender-line' }, [
-                el('span', { class: 'sender-name eli-name', text: 'Eli' }),
+                el('span', { class: 'sender-name eli-name', text: charName() }),
                 msg.mood ? el('div', { class: 'msg-mood-dot', style: { background: MOOD_COLORS[msg.mood] || '#555' } }) : null,
             ]);
             const leaves = leafSpan(msg.stoned_level_eli, { tappable: true });
@@ -1293,7 +1295,7 @@
 
     function buildSignoffCard(msg) {
         const card = el('div', { class: 'signoff-card' });
-        card.appendChild(el('div', { class: 'signoff-header', text: '📨 Sign-off sent to Eli' }));
+        card.appendChild(el('div', { class: 'signoff-header', text: '📨 Sign-off sent to ' + charName() }));
         card.appendChild(el('div', { class: 'signoff-body', text: msg.content || '' }));
         return card;
     }
@@ -1354,7 +1356,7 @@
         const hasJournal = meta.journal_written;
         const tagJournal = el('span', { class: 'stats-tag journal', text: '✓ Journal entry saved' });
         card.appendChild(tagJournal);
-        const tagEli = el('span', { class: 'stats-tag eli', text: '✓ Sign-off sent to Eli' });
+        const tagEli = el('span', { class: 'stats-tag eli', text: '✓ Sign-off sent to ' + charName() });
         card.appendChild(tagEli);
 
         return card;
@@ -1418,7 +1420,7 @@
         header.appendChild(info);
         card.appendChild(header);
         card.appendChild(el('div', { class: 'briefing-body', text: msg.content || '' }));
-        card.appendChild(el('span', { class: 'briefing-tag', text: 'Briefing sent to Eli' }));
+        card.appendChild(el('span', { class: 'briefing-tag', text: 'Briefing sent to ' + charName() }));
         return card;
     }
 
@@ -1520,10 +1522,10 @@
         const ta = $('messageInput');
         if (ta) {
             if (!active) ta.placeholder = 'Start a session to chat';
-            else if (!hasMovie) ta.placeholder = 'Start a movie on Plex to chat with Eli';
+            else if (!hasMovie) ta.placeholder = 'Start a movie on Plex to chat with ' + charName();
             else if (state.standby) ta.placeholder = 'Standby mode';
             else if (state.away) ta.placeholder = 'Away mode';
-            else ta.placeholder = 'Message Eli...';
+            else ta.placeholder = 'Message ' + charName() + '...';
         }
     }
 
@@ -1596,7 +1598,7 @@
 
     function buildTypingIndicator() {
         const wrap = el('div', { class: 'eli-typing', id: 'eliTyping' });
-        wrap.appendChild(el('span', { class: 'eli-typing-label', text: 'Eli' }));
+        wrap.appendChild(el('span', { class: 'eli-typing-label', text: charName() }));
         const dots = el('span', { class: 'eli-typing-dots' });
         dots.appendChild(el('span'));
         dots.appendChild(el('span'));
@@ -1956,12 +1958,12 @@
         const card = el('div', { class: 'trivia-card' });
         card.appendChild(document.createTextNode(trivia));
         card.appendChild(el('span', { class: 'trivia-source', text: 'via Google Search' }));
-        const hint = el('span', { class: 'trivia-share-hint', text: 'tap to share with Eli' });
+        const hint = el('span', { class: 'trivia-share-hint', text: 'tap to share with ' + charName() });
         card.appendChild(hint);
         card.dataset.trivia = trivia;
         if (state.sharedTrivia && state.sharedTrivia.has(trivia)) {
             card.classList.add('shared');
-            hint.textContent = 'shared with Eli ✓';
+            hint.textContent = 'shared with ' + charName() + ' ✓';
         }
         card.addEventListener('click', () => shareTrivia(card));
         return card;
@@ -2000,7 +2002,7 @@
         card.classList.add('shared');
         state.sharedTrivia.add(trivia);
         const hint = card.querySelector('.trivia-share-hint');
-        if (hint) hint.textContent = 'shared with Eli ✓';
+        if (hint) hint.textContent = 'shared with ' + charName() + ' ✓';
         try {
             await fetch('/api/message', {
                 method: 'POST',
@@ -2011,7 +2013,7 @@
             console.error('trivia share failed', e);
             card.classList.remove('shared');
             state.sharedTrivia.delete(trivia);
-            if (hint) hint.textContent = 'tap to share with Eli';
+            if (hint) hint.textContent = 'tap to share with ' + charName();
         }
     }
 
@@ -2230,7 +2232,35 @@
             populateCharacterSelect();
             const sel = $('activeCharacter');
             if (sel && data.active) sel.value = data.active;
+            applyActiveCharacter(data.active);
         } catch (e) { console.error('character load failed', e); }
+    }
+
+    function charName() { return state.activeCharFirst || 'Eli'; }
+
+    // Update everything that names the active character + gate the cannabis
+    // UI (it's romantic/Eli-only). Called on load and on dropdown change.
+    function applyActiveCharacter(key) {
+        const c = state.characters.find(x => x.key === key);
+        if (c) {
+            state.activeCharFirst = c.first_name || c.name || 'Eli';
+            state.activeCharRomantic = !!c.romantic;
+        }
+        const n = charName();
+        document.querySelectorAll('.eli-typing-label').forEach(e => e.textContent = n);
+        const mic = $('micBtn');
+        if (mic) mic.title = 'Record a voice note for ' + n;
+        const sub = $('startSubtitle');
+        if (sub) sub.textContent = 'Watch movies with ' + n +
+            '. Every comment you send becomes a shared experience — powered by Gemini and Kindroid.';
+        // Cannabis vibe-check is romantic-only (avoids dabbing grandma).
+        const showVibe = state.activeCharRomantic;
+        ['vibeCheckGroup', 'vibeCheckDivider'].forEach(id => {
+            const el = $(id);
+            if (el) el.style.display = showVibe ? '' : 'none';
+        });
+        updateInputAvailability();
+        renderAllMessages();
     }
 
     function syncSettingsUI() {
@@ -2609,6 +2639,7 @@
     async function persistSelect(sel) {
         const key = sel.dataset.setting;
         state.settings[key] = sel.value;
+        if (key === 'active_character') applyActiveCharacter(sel.value);
         try {
             await fetch('/api/settings/' + encodeURIComponent(key), {
                 method: 'PUT',
@@ -2881,6 +2912,7 @@
             case 'setting_updated':
                 state.settings[msg.key] = msg.value;
                 syncSettingsUI();
+                if (msg.key === 'active_character') applyActiveCharacter(msg.value);
                 break;
             case 'ingestion':
                 // Server is the source of truth — sync local ingestion state
