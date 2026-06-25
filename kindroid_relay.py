@@ -111,21 +111,25 @@ def build_payload(
     history_narrative: str = "",
     stoned_narration: str = "",
     reaction_narration: str = "",
+    presence_narration: str = "",
     typed_dialogue: str = "",
 ) -> str:
     """Assemble the Kindroid message body per our emote convention.
 
     Order:
       1. Format-directive emote (anti-drift reminder).
-      2. Stoned-state directive emote (telling Eli how SHE is feeling).
-      3. Scene / history / reaction emotes (one block per paragraph).
-      4. Typed dialogue, plain.
+      2. Stoned-state directive emote (telling the kin how they're feeling).
+      3. Presence emote (where they are + who else is in the room) — early so
+         it consistently gates the kin's behavior/intimacy each turn.
+      4. Scene / history / reaction emotes (one block per paragraph).
+      5. Typed dialogue, plain.
     """
     lines: list[str] = [_FORMAT_DIRECTIVE_EMOTE]
-    # Stoned directive (Eli's state) comes second so the formatting reminder
-    # is the very first thing, and Eli's altered-state framing is the
-    # second thing she sees — both before any scene/reaction content.
+    # Stoned directive (the kin's state) comes second so the formatting
+    # reminder is the very first thing, and the altered-state framing is the
+    # second thing they see — both before any scene/reaction content.
     lines.extend(_wrap_paragraphs_as_emotes(stoned_narration or ""))
+    lines.extend(_wrap_paragraphs_as_emotes(presence_narration or ""))
     for block in (scene_narration, history_narrative, reaction_narration):
         lines.extend(_wrap_paragraphs_as_emotes(block or ""))
     body = "\n".join(lines)

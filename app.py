@@ -27,6 +27,7 @@ from database import db, row_to_dict, rows_to_list
 from gemini_brain import GeminiError, gemini_brain
 from kindroid_relay import KindroidError, build_payload, parse_reply, send_message
 from plex_monitor import plex_monitor
+import presence
 from session_manager import (
     build_session_stats,
     format_stats_hint,
@@ -305,6 +306,12 @@ async def _generate_briefing_card(session_id: str, movie_id: int, plex_data: dic
     # No history (fresh start for this movie), no reaction, no dialogue.
     # No typing indicator — briefing isn't a Tim-initiated conversation turn.
     if briefing_text.strip():
+        # Give the kin the full setting once, here, rather than the short
+        # per-message standing line.
+        venue, people, descriptions = await _presence_state()
+        setting_note = presence.briefing_note(
+            venue, descriptions.get(venue or "", ""), people
+        )
         await _send_to_kindroid_and_render(
             session_id,
             scene_narration=briefing_text,
@@ -314,6 +321,7 @@ async def _generate_briefing_card(session_id: str, movie_id: int, plex_data: dic
             typed_dialogue="",
             mood=None,
             show_typing=False,
+            presence_override=setting_note,
         )
 
 
@@ -539,6 +547,26 @@ async def _active_character() -> Optional["characters.Character"]:
     return characters.resolve_or_default(key)
 
 
+async def _presence_state() -> tuple[Optional[str], list[dict], dict]:
+    """Read current venue key, present-people dicts, and venue descriptions."""
+    venue = await db.get_setting("active_venue")
+    try:
+        people_keys = json.loads(await db.get_setting("present_people") or "[]")
+    except (ValueError, TypeError):
+        people_keys = []
+    try:
+        descriptions = json.loads(await db.get_setting("venue_descriptions") or "{}")
+    except (ValueError, TypeError):
+        descriptions = {}
+    return venue, presence.present_people(people_keys), descriptions
+
+
+async def _presence_standing_line() -> str:
+    """Short per-message presence emote (where + who else is in the room)."""
+    venue, people, _ = await _presence_state()
+    return presence.standing_line(venue, people)
+
+
 async def _refresh_active_companion() -> Optional["characters.Character"]:
     """Resolve the active character and push their persona into Gemini.
 
@@ -565,6 +593,8 @@ async def _send_to_kindroid_and_render(
     typed_dialogue: str = "",
     mood: Optional[str] = None,
     show_typing: bool = True,
+    include_presence: bool = True,
+    presence_override: Optional[str] = None,
     image_urls: Optional[list[str]] = None,
 ) -> None:
     # Respect any mid-flight standby/away flip.
@@ -575,11 +605,19 @@ async def _send_to_kindroid_and_render(
     """Assemble the Kindroid payload from emote sections, send, parse, persist
     Eli's reply, and broadcast it to the UI. Handles overflow with condense().
     """
+    # Standing presence cue (where Tim is + who else is in the room) goes on
+    # every message so the kin keeps it in mind and modulates tone. A caller
+    # may supply a richer one-off note (e.g. the briefing's full setting).
+    if presence_override is not None:
+        presence_line = presence_override
+    else:
+        presence_line = await _presence_standing_line() if include_presence else ""
     payload = build_payload(
         scene_narration=scene_narration,
         history_narrative=history_narrative,
         stoned_narration=stoned_line,
         reaction_narration=reaction_narration,
+        presence_narration=presence_line,
         typed_dialogue=typed_dialogue,
     )
 
@@ -597,6 +635,7 @@ async def _send_to_kindroid_and_render(
                 history_narrative=history_narrative,
                 stoned_narration=stoned_line,
                 reaction_narration=reaction_narration,
+                presence_narration=presence_line,
                 typed_dialogue=typed_dialogue,
             )
         except Exception:
@@ -1414,6 +1453,7 @@ async def _finalize_session(session_id: str) -> None:
                 typed_dialogue=signoff_text,
                 mood=None,
                 show_typing=True,
+                include_presence=False,
             )
 
         # 2) Marathon summary (Gemini → DB 'stats' message).
@@ -1494,6 +1534,19 @@ async def api_get_characters(_auth: dict = Depends(require_auth)):
     ]
     active = await db.get_setting("active_character") or characters.DEFAULT_KEY
     return JSONResponse({"characters": roster, "active": active})
+
+
+@app.get("/api/presence")
+async def api_get_presence(_auth: dict = Depends(require_auth)):
+    """Venue + present-people presets and current selections for the UI."""
+    venue, people, descriptions = await _presence_state()
+    return JSONResponse({
+        "venues": presence.VENUES,
+        "people": presence.PEOPLE,
+        "active_venue": venue or "living_room",
+        "present_people": [p["key"] for p in people],
+        "venue_descriptions": descriptions,
+    })
 
 
 @app.put("/api/settings/{key}")

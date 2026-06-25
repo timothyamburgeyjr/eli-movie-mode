@@ -96,6 +96,10 @@ DEFAULT_SETTINGS = {
     "auto_journal": "true",
     # Which family member (registry key) Movie Mode is currently talking to.
     "active_character": "eli",
+    # Physical-setting context: where Tim is and who's in the room.
+    "active_venue": "living_room",
+    "present_people": "[]",            # JSON list of presence.PEOPLE keys
+    "venue_descriptions": "{}",        # JSON map venue_key -> saved description
 }
 
 

@@ -89,6 +89,14 @@
             padding: 10px 16px; color: var(--text-primary); font-size: 0.95rem; font-weight: 600;
             outline: none; cursor: pointer; min-width: 200px; text-align: center; text-align-last: center;
         }
+        .presence-block { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+        .presence-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+        .presence-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 320px; }
+        .presence-chip {
+            padding: 6px 12px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border);
+            color: var(--text-muted); font-size: 0.8rem; cursor: pointer; transition: all 0.12s; user-select: none;
+        }
+        .presence-chip.on { background: rgba(122,90,248,0.18); border-color: var(--accent, #7a5af8); color: var(--text-primary); }
         .start-btn {
             padding: 14px 40px; border-radius: 14px; background: var(--success); border: none; color: #fff;
             font-size: 1rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.15s;
@@ -695,6 +703,7 @@
         <label class="start-character-label" for="activeCharacter">Watching with</label>
         <select class="start-select" id="activeCharacter" data-setting="active_character" onchange="persistSelect(this)"></select>
     </div>
+    <div class="presence-block" id="startPresence"></div>
     <button class="start-btn" id="startBtn" onclick="startSession()">▶ Start Movie Mode</button>
     <div class="start-last-session hidden" id="startLastSession">
         <div class="start-last-label">Last session</div>
@@ -806,6 +815,12 @@
         <div class="toggle-row"><span class="label">Trivia cards</span><div class="toggle" data-setting="trivia_visible" onclick="toggleSetting(this)"></div></div>
         <div class="toggle-row"><span class="label">Mood gradient</span><div class="toggle" data-setting="mood_gradient" onclick="toggleSetting(this)"></div></div>
     </div>
+    <div class="setting-divider"></div>
+    <div class="setting-group">
+        <span class="setting-label">Setting</span>
+        <span class="setting-desc">Where you're watching and who else is in the room. Update any time — people come and go.</span>
+        <div class="presence-block" id="settingsPresence" style="align-items:flex-start;padding-top:6px;"></div>
+    </div>
     <div class="setting-divider" id="vibeCheckDivider"></div>
     <div class="setting-group" id="vibeCheckGroup">
         <span class="setting-label">🌿 Eli's Vibe Check</span>
@@ -880,6 +895,10 @@
         activeCharKey: 'eli',
         activeCharFirst: 'Eli',
         activeCharRomantic: true,
+        venues: [],
+        peoplePresets: [],
+        activeVenue: 'living_room',
+        presentPeople: [],
         usage: 0,
         budget: 1000,
         standby: false,
@@ -2242,6 +2261,64 @@
 
     function charName() { return state.activeCharFirst || 'Eli'; }
 
+    // ─── Presence (where + who's in the room) ──────────────────────
+    async function loadPresence() {
+        try {
+            const res = await fetch('/api/presence');
+            if (!res.ok) return;
+            const d = await res.json();
+            state.venues = d.venues || [];
+            state.peoplePresets = d.people || [];
+            state.activeVenue = d.active_venue || 'living_room';
+            state.presentPeople = d.present_people || [];
+            renderPresence();
+        } catch (e) { console.error('presence load failed', e); }
+    }
+
+    function renderPresence() {
+        ['startPresence', 'settingsPresence'].forEach(containerId => {
+            const box = $(containerId);
+            if (!box) return;
+            const venueOpts = state.venues
+                .map(v => `<option value="${v.key}">${v.label}</option>`).join('');
+            const chips = state.peoplePresets.map(p => {
+                const on = state.presentPeople.includes(p.key) ? ' on' : '';
+                return `<button type="button" class="presence-chip${on}" data-person-key="${p.key}" onclick="togglePerson('${p.key}')">${p.emoji} ${p.label}</button>`;
+            }).join('');
+            box.innerHTML =
+                `<span class="presence-label">Where</span>` +
+                `<select class="start-select presence-venue" onchange="setVenue(this.value)">${venueOpts}</select>` +
+                `<span class="presence-label">Who else is here</span>` +
+                `<div class="presence-chips">${chips}</div>`;
+            const sel = box.querySelector('.presence-venue');
+            if (sel) sel.value = state.activeVenue;
+        });
+    }
+
+    async function setVenue(value) {
+        state.activeVenue = value;
+        renderPresence();
+        try {
+            await fetch('/api/settings/active_venue', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value }),
+            });
+        } catch (e) { console.error('venue save failed', e); }
+    }
+
+    async function togglePerson(key) {
+        const i = state.presentPeople.indexOf(key);
+        if (i >= 0) state.presentPeople.splice(i, 1);
+        else state.presentPeople.push(key);
+        renderPresence();
+        try {
+            await fetch('/api/settings/present_people', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: JSON.stringify(state.presentPeople) }),
+            });
+        } catch (e) { console.error('present_people save failed', e); }
+    }
+
     // Update everything that names the active character + gate the cannabis
     // UI (it's romantic/Eli-only). Called on load and on dropdown change.
     function applyActiveCharacter(key) {
@@ -2920,6 +2997,11 @@
                 state.settings[msg.key] = msg.value;
                 syncSettingsUI();
                 if (msg.key === 'active_character') applyActiveCharacter(msg.value);
+                else if (msg.key === 'active_venue') { state.activeVenue = msg.value; renderPresence(); }
+                else if (msg.key === 'present_people') {
+                    try { state.presentPeople = JSON.parse(msg.value || '[]'); } catch (e) {}
+                    renderPresence();
+                }
                 break;
             case 'ingestion':
                 // Server is the source of truth — sync local ingestion state
@@ -3132,6 +3214,7 @@
         wireInput();
         wireReactions();
         await loadCharacters();
+        await loadPresence();
         try {
             const res = await fetch('/api/session');
             if (res.ok) applySnapshot(await res.json());
