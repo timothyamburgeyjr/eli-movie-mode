@@ -14,10 +14,13 @@ setting and enrich the briefing only.
 """
 from typing import Optional
 
-# Standing venues. `other` is the catch-all for one-off places.
+# Standing venues. `phrase` is how the venue reads mid-sentence ("...watching
+# together {phrase}"); `other` is the catch-all for one-off places and has no
+# phrase (the where-clause is dropped).
 VENUES: list[dict] = [
-    {"key": "living_room", "label": "Living room"},
-    {"key": "bedroom", "label": "Bedroom"},
+    {"key": "living_room", "label": "Living room", "phrase": "in the living room"},
+    {"key": "bedroom", "label": "Bedroom", "phrase": "in the bedroom"},
+    {"key": "oasis_amphitheatre", "label": "Oasis amphitheatre", "phrase": "at the Oasis amphitheatre"},
     {"key": "other", "label": "Somewhere else"},
 ]
 
@@ -38,6 +41,12 @@ _PERSON_BY_KEY = {p["key"]: p for p in PEOPLE}
 def venue_label(key: Optional[str]) -> str:
     v = _VENUE_BY_KEY.get((key or "").lower())
     return v["label"] if v else ""
+
+
+def venue_phrase(key: Optional[str]) -> str:
+    """Mid-sentence location phrase, e.g. 'in the bedroom'. Empty for `other`."""
+    v = _VENUE_BY_KEY.get((key or "").lower())
+    return v.get("phrase", "") if v else ""
 
 
 def present_people(keys: Optional[list]) -> list[dict]:
@@ -64,13 +73,12 @@ def standing_line(venue_key: Optional[str], people: list[dict]) -> str:
     Venue *label* only here (cheap, reinforces the setting each turn); the
     full venue description is reserved for the briefing.
     """
-    label = venue_label(venue_key)
-    where = f"in the {label.lower()}" if label and venue_key != "other" else ""
+    where = venue_phrase(venue_key)
     if people:
         who = _join_pov(people)
         if where:
-            return f"We're watching together {where}, and {who} {'is' if len(people) == 1 else 'are'} here in the room with us too."
-        return f"{who[0].upper() + who[1:]} {'is' if len(people) == 1 else 'are'} here in the room with us while we watch."
+            return f"We're watching together {where}, and {who} {'is' if len(people) == 1 else 'are'} here with us too."
+        return f"{who[0].upper() + who[1:]} {'is' if len(people) == 1 else 'are'} here with us while we watch."
     if where:
         return f"It's just the two of us watching together {where}."
     return ""
@@ -78,10 +86,10 @@ def standing_line(venue_key: Optional[str], people: list[dict]) -> str:
 
 def briefing_note(venue_key: Optional[str], venue_desc: str, people: list[dict]) -> str:
     """Richer one-time setting line for the briefing. Empty if nothing set."""
-    label = venue_label(venue_key)
+    where = venue_phrase(venue_key)
     parts: list[str] = []
-    if label and venue_key != "other":
-        base = f"We're settling in to watch in the {label.lower()}"
+    if where:
+        base = f"We're settling in to watch together {where}"
         if venue_desc.strip():
             base += f" — {venue_desc.strip()}"
         parts.append(base + ".")
