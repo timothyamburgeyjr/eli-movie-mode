@@ -19,5 +19,9 @@ services:
       JOURNAL_DIR: /journals
       # Public URL Kindroid hits to fetch live-photo uploads.
       PUBLIC_BASE_URL: https://movie.amburgey.dev
+      # The AI family vault is the same D:/Vault mount (above, as /journals).
+      # Point the roster/persona loader at it inside the container.
+      VAULT_ROOT: /journals
+      AI_REGISTRY_PATH: "/journals/20 - The AI Family/_AI Registry.md"
     env_file:
       - .env
