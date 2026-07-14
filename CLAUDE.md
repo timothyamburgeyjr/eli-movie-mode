@@ -103,7 +103,11 @@ Generate trivia every 3-4 exchanges, not every message. Track exchange count in 
 
 **Endpoint:** `POST https://api.kindroid.ai/v1/send-message`
 **Auth:** Bearer token in header
-**Character limit:** 3,750 characters per message
+**Character limit:** **4,000** characters per message — that is Kindroid's real, hard cap, and it is what `config.kindroid_char_limit` enforces.
+
+> Earlier drafts of this spec said 3,750. That was never Kindroid's number: it was self-imposed headroom, written down as though it were the API's limit. It then read as a *third* budget alongside the real cap and the reserve, and cost an afternoon of "are we silently truncating Tim's dialogue?" (We are not — but his typed words sit LAST in the payload, so a real overrun would eat exactly them, which is why it was worth chasing.)
+>
+> The headroom is real and still wanted — it just lives in code now, where it can be measured, not in prose where it can be mistaken for a fact: `app._PAYLOAD_RESERVE` (520 chars) covers the emote wrappers and slack, so the assembled body lands under 4,000 with margin. **Budget against 4,000. Keep the reserve.**
 
 ### Prompt Construction
 
@@ -126,9 +130,15 @@ For emoji reactions (no typed message):
 
 ### Character Limit Strategy
 
-1. Bake the limit into Gemini's system prompt: "Keep your scene description under 400 characters."
-2. If the constructed Kindroid prompt exceeds 3,750 chars, send it back to Gemini with: "Condense the following to under {remaining_chars} characters while preserving the key details: {text}"
+1. **Bake the budget into Gemini's prompt — but compute it, don't hardcode it.** This used to say "keep the scene under 400 characters"; scenes now run a median of ~1,600, because `scene_target` is derived from what's actually left in the payload rather than from a number written down once. That is correct, and the 400 was never anything but a guess.
+2. If the constructed Kindroid prompt exceeds the cap (4,000, less `_PAYLOAD_RESERVE`), send it back to Gemini with: "Condense the following to under {remaining_chars} characters while preserving the key details: {text}"
 3. Never truncate — always re-summarize.
+
+**The payload is budgeted PER KIN, before the call — not rejected after it.** In a room, the message grows down the circle: each kin is handed the previous speakers' replies as narration, so the last one carries the fattest packet. (Measured: Ellen's once arrived at 7,773 against a 4,000 cap, was rejected, fell through to the mechanical builder, which was *also* over — and so dropped the scene. Six of eight kins answered a film they'd been told nothing about.)
+
+So, in order: trim the prior speakers → size the catch-up tracks to what's free → give the scene the remainder. Measured over 3,142 real kin messages, **83% speak first and carry no prior at all**; only 7% carry a full three-speaker block. The common case has room to spare, and the caps are elastic so it gets used.
+
+**Priority when space runs out: drop the SCENE, never the catch-up.** The scene is one moment they can ask about; the catch-up is everything they'd otherwise have no memory of at all.
 
 ### Response Parsing
 
@@ -477,7 +487,7 @@ services:
 
 ```
 PLEX_URL=https://pixel-direct.usbx.me:14975
-PLEX_TOKEN=xD2UDtVcbcCvB-qHjR5f
+PLEX_TOKEN=  # see .env — never commit the real token
 GEMINI_API_KEY=
 KINDROID_API_KEY=
 KINDROID_AI_ID=
@@ -546,7 +556,7 @@ eli-movie-mode/
 - [ ] Google Search grounding for trivia
 - [ ] Trivia cadence tracking (every 3-4 exchanges)
 - [ ] Movie briefing generation
-- [ ] Character limit enforcement (condense if over 3750 chars)
+- [ ] Character limit enforcement (condense if over the 4,000 cap)
 
 ### Phase 4: Kindroid Integration
 - [ ] Kindroid API send-message endpoint

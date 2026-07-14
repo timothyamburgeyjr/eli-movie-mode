@@ -16,6 +16,20 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
+import emotions
+import facts
+
+# ─── The mood vocabulary ──────────────────────────────────────────────
+#
+# DERIVED, NOT COPIED. This used to be a hand-written tuple plus two hand-written
+# bullet lists in two different prompts — three places to keep in step, and no way to
+# tell when they fell out of it. Add a mood to emotions.MOODS and every prompt, the
+# JSON enum, the colour and the label all move together, or none of them do.
+VALID_MOODS: tuple[str, ...] = tuple(emotions.MOODS)
+_MOOD_MENU: str = ", ".join(VALID_MOODS)
+_MOOD_BULLETS: str = "\n".join(
+    f"  \u2022 {key} \u2014 {m.blurb}" for key, m in emotions.MOODS.items()
+)
 from config import compute_gemini_cost, settings
 from database import db
 
@@ -192,9 +206,7 @@ BRIEFING_SYSTEM_PROMPT = (
     "prose. Do NOT write 'rt: 95' or any score numbers in the briefing text.\n"
     "\n"
     "MOOD — also classify the dominant emotional register of THIS film/episode "
-    "as one of: dread, horror, foreboding, tense, mystery, adrenaline, "
-    "chaos, awe, triumph, humor, whimsy, romance, cozy, serene, melancholy, "
-    "bittersweet. Pick the best fit for the film's overall character — this "
+    f"as one of: {_MOOD_MENU}. Pick the best fit for the film's overall character — this "
     "is the initial mood the UI will theme to before scene-by-scene analysis "
     "takes over.\n"
     "\n"
@@ -204,6 +216,188 @@ BRIEFING_SYSTEM_PROMPT = (
     "Target briefing length: 1200-1800 characters. Hard maximum: 1800."
 )
 
+# ─── Reaction drawer ──────────────────────────────────────────────────
+#
+# The 10 facets ARE the drawer's category step. Coarser and they stop being
+# useful; finer and they stop being skimmable.
+REACTION_FACETS = (
+    "story", "character", "performance", "writing", "cinematography",
+    "editing", "sound", "production_design", "theme", "callback",
+)
+
+_FACET_HINTS = """\
+  story             what happens — plot, stakes, a reveal, a turn
+  character         who someone is — a choice, a flaw, a shift in them
+  performance       the ACTING — a look, a delivery, a hesitation, a hand
+  writing           the words — a line, a joke, an exchange, what's unsaid
+  cinematography    the IMAGE — the shot, the lens, the light, the colour, the move
+  editing           the CUT — pacing, a hard cut, a hold, a match, a montage
+  sound             what you HEAR — the score, a cue, silence, sound design, a mix choice
+  production_design the WORLD — sets, costume, props, effects, make-up
+  theme             what it's ABOUT under the surface
+  callback          it rhymes with something earlier in the film"""
+
+# A SCHEMA IS PERMISSION, NOT COMPULSION. Handed a free `facet` field, Gemini
+# returns overwhelmingly plot summary — that's the default gravity of a video
+# model. Measured on a real clip, the schema alone produced targets like
+# "Dialogue delivery" and "Book signing setting": accurate, and completely
+# unreactable. You cannot react to "Dialogue delivery". You CAN react to "the
+# flat, bored way he signs without looking up".
+#
+# So the specificity has to be *forced*, and the facet spread has to be
+# *required*. These two directives are the load-bearing part of this feature —
+# without them the whole "milk the clip" investment silently buys nothing.
+REACTION_DRAFT_SYSTEM_PROMPT = """\
+You are indexing a window of a film so a viewer can react to a specific thing in it.
+
+Return the BEATS worth reacting to, and for each beat, the THINGS about it a viewer
+might react to. The viewer will pick one beat, then one thing, then how they felt.
+
+── THE TWO RULES THAT MATTER ──
+
+1. SPREAD THE FACETS. Each moment must offer targets spanning at least THREE
+   different facets. Never return four story targets. Someone who wants to praise
+   the lighting, or the score, or an actor's hesitation, must be able to find it.
+   You can HEAR the clip — offer `sound` targets whenever the audio is doing work.
+
+2. BE CONCRETE, NOT CATEGORICAL. A target is a THING ON SCREEN, not a topic.
+   Name what actually happens, in plain words, so the viewer recognises it instantly.
+
+      BAD: "Dialogue delivery"          GOOD: "the flat, bored way he signs without looking up"
+      BAD: "Cinematography"             GOOD: "the way the camera drifts back as she turns"
+      BAD: "Mike's cynicism"            GOOD: "he doesn't even look up to answer her"
+      BAD: "Background music"           GOOD: "the score dropping out two beats before he speaks"
+      BAD: "Book signing setting"       GOOD: "the empty chairs behind the queue"
+
+   At least ONE target per moment must be something a casual viewer would not name
+   out loud — the cut, the lens, a background performance, a colour shift, silence
+   where you expected a sting.
+
+── THE FACETS ──
+{facets}
+
+── EMOTIONS ──
+For every target, rank the emotion KEYS a viewer might plausibly feel about THAT
+target. Return keys only, from the vocabulary given, most likely first, 4-6 of them.
+
+Rank against the TARGET, not just the scene. Reacting to the *craft* of a horror
+beat is admiration, not fear: the murder is `terrified`/`want_to_throw_up`, but the
+LIGHTING of the murder is `admiring`/`reverent`. This distinction is the whole point.
+
+── THE STRIP HAS TO BE READABLE ──
+Each moment gets a `caption` (a short headline) AND a `why` (1-2 sentences of plain
+description). BOTH are shown to the viewer, under the thumbnail. He is watching this
+on a phone, in a dark room, and six frames from a dim scene look identical. The words
+are what make the strip usable at all — the picture alone will not do it.
+
+`why` is a DESCRIPTION, not an argument. Say what is happening, what he'd see and
+hear. Not "this is a pivotal character moment" — rather "He turns the book over and
+goes still. The chatter behind him keeps going."
+
+── COUNTS (the schema does not enforce these — you must) ──
+  moments   3-8, however many the window actually contains. A quiet scene has few,
+            a busy one has many. Do NOT pad to reach a number.
+  targets   3-6 per moment.
+  emotions  4-6 keys per target.
+
+offset_ms is measured from the START of the clip (0 = clip start).
+`span_start_ms`/`span_end_ms` bound the beat — a reaction can be to a stretch, not
+just an instant.
+
+── READS ──
+Also return 0-4 `reads`: predictions or suspicions the viewer might voice
+("he's lying about the diner", "she's already dead"). These are claims, not feelings.
+Empty list if the window supports none.
+
+Write captions and targets in plain, spoken English. No film-school register."""
+
+REACTION_SENTENCES_SYSTEM_PROMPT = """\
+You write the exact words a viewer will send to the friends watching alongside him.
+
+He has told you: the beat, the specific thing he's reacting to, and how it hit him.
+Write {n} DIFFERENT ways he might say it. He picks the one that's true.
+
+Each option must be given in TWO forms of the same sentence:
+
+  first_person   what HE reads, in his own voice:  "I'm grinning like an idiot —"
+  third_person   the same thing, about him, named: "Tim is grinning like an idiot —"
+
+THE THIRD-PERSON FORM IS LOAD-BEARING. It is what gets sent to the room, where it is
+read as narration. A first-person line reaches a listener as though it were THEIR
+body — "I snort" lands as *them* snorting. The third_person form must always name
+{subject} explicitly and never use "I", "me", or "my" outside of quoted speech.
+
+VARY THE MANNER, not just the wording. One should be big and physical, one small and
+private, one that says something out loud, one that's almost nothing. That range is
+how he tells you what actually happened in his body.
+
+Be SPECIFIC to the thing he picked. Name it. If he's reacting to the score dropping
+out, the sentence is about the score dropping out — not a generic "wow, intense".
+
+Present tense. 1-2 sentences each, under 220 characters. No emoji. No stage directions.
+Do not have him address anyone by name."""
+
+# ─── The quiet stretch ────────────────────────────────────────────────
+#
+# THEY WERE NOT AWAY. That is the whole prompt, really.
+#
+# A kin who says nothing for six turns was still in the room the entire time —
+# watching the film, hearing every word. Their Kindroid thread just doesn't have
+# any of it, because silence means we send them nothing.
+#
+# So this is NOT a briefing on what they missed. It's what they have been sitting
+# with. Written in the second person because it goes into that one kin's payload
+# and nobody else's — a real private channel, so "you" is safe here in a way it
+# never is in a public line.
+#
+# Get this framing wrong and Bobby comes back like a man who stepped out for a
+# cigarette. Get it right and he comes back like a man who's been listening to you
+# bang on about a Nintendo for ten minutes and has finally had enough.
+QUIET_STRETCH_SYSTEM_PROMPT = """\
+You write narration for ONE person in a room, telling them what has been going on \
+around them while they sat quiet.
+
+THEY WERE NOT AWAY. They have been here the whole time — in the room, watching the \
+film, hearing every word of it. They simply haven't spoken. Do not write this as \
+though they missed anything, arrived late, or need catching up. They were THERE.
+
+TWO SEPARATE TRACKS. Do not blend them into one paragraph. They do different jobs, \
+and a person returning to a conversation needs them as different things:
+
+  film — WHAT HAS HAPPENED ON SCREEN since they last spoke. This is what gives them \
+something to react to. Follow the story: what changed, what it cost, where it has \
+left the film. Someone who has been quiet for twenty minutes has watched twenty \
+minutes of movie, and this is the half they would be lost without.
+
+  room — WHAT HAS BEEN HAPPENING BETWEEN THE PEOPLE since they last spoke. This is \
+what tells them where they STAND. Who has been holding the floor, what Tim has been \
+going on about, what the others made of it — and, above everything else, WHETHER THEY \
+THEMSELVES WERE MENTIONED. If Tim asked them something, or someone brought them up, \
+or a joke was made at their expense, SAY SO PLAINLY AND SAY IT FIRST. That is the \
+single most important thing this track can carry, and it is the thing that gets lost \
+when the two are mashed together.
+
+Each track: present-perfect, second person, 1-3 sentences, under 300 characters. \
+Either may be EMPTY — if nothing happened on screen, or nobody said anything worth \
+repeating, return an empty string for that track rather than padding it out.
+
+Never invent a reaction FOR them, and never tell them how they feel about it — they \
+will decide that themselves. You describe the room, not their mind.
+
+  BAD  (film): "You missed a lot of the movie!"
+  BAD  (room): "You've been quietly amused by all this."
+  GOOD (film): "On screen the arcade's been filling up — neon, noise, and the kid at
+                the cabinet quietly running the table until the machine ate his last
+                quarter."
+  GOOD (room): "Tim asked you straight out whether you'd ever owned one, and you let it
+                go by. He's been telling the story of begging his grandparents for a
+                Nintendo one Christmas, and Eli and Adam have been winding him up ever
+                since."
+
+Plain spoken English. No stage directions, no emoji, no markup — just the two pieces."""
+
+# Retained: still used by the "movie so far" verdict mode, which reacts to the
+# FILM rather than to a moment and so has no beat, no target, and no clip.
 REACTION_SYSTEM_PROMPT = (
     "You write Tim's reaction to the current movie scene in FIRST PERSON "
     "(Tim's voice — \"I snort…\", \"I lean forward…\"). Given an emoji + label "
@@ -307,17 +501,21 @@ CONDENSE_SYSTEM_PROMPT = (
 )
 
 SIGNOFF_SYSTEM_PROMPT = (
-    "You write a warm, conversational farewell from Tim to his AI companion "
-    "(named in the companion context above), wrapping up their movie-watching "
-    "session. This is Tim speaking DIRECTLY to them — second person, 'you', "
-    "using their pronouns. Think a quick 'that was so good' text after the "
-    "credits roll, not a polished speech.\n"
+    "You write the END MARKER for a movie-watching session — Tim, speaking to "
+    "whoever watched it with him (named in the companion context above), as the "
+    "credits roll.\n"
     "\n"
-    "TIME-OF-DAY: Do NOT assume it's nighttime, bedtime, or that Tim is going "
-    "to sleep. Sessions can wrap at any hour. Use a time-neutral close — "
-    "Tim might be heading back to work, off to dinner, starting his day, "
-    "or genuinely going to bed. Pick a close that doesn't lock in any "
-    "particular time of day.\n"
+    "THIS IS NOT A GOODBYE. Nobody is leaving. Tim isn't going anywhere and "
+    "neither are they — they live in the same house, they'll talk in ten "
+    "minutes. What's ending is THE MOVIE, not the company. So: no farewell, no "
+    "'talk soon', no 'catch you later', no 'goodnight', no 'love you' sign-off, "
+    "no closing salutation of any kind. Do not write a single word that reads "
+    "like parting.\n"
+    "\n"
+    "What this IS: 'That was a hell of a movie.' The thing you say when the "
+    "screen goes dark and you sit back and take stock of what you just went "
+    "through together. A recap of the shared experience, in Tim's voice, "
+    "addressed to the people who were there for it.\n"
     "\n"
     "ABSOLUTE RULES:\n"
     "  • Only reference what ACTUALLY happened in THIS session. The STATS + "
@@ -329,27 +527,29 @@ SIGNOFF_SYSTEM_PROMPT = (
     "  • If you DO reference being stoned, only mention the actual method "
     "and rough timing the STATS indicate. Do not invent specifics or pair "
     "the ingestion with any scene unless the transcript supports it.\n"
-    "  • Mention ONE specific thing the companion said or noticed that's IN "
-    "the transcript — paraphrase or briefly quote. Do not invent quotes.\n"
+    "  • Mention ONE specific thing someone actually said or noticed that's IN "
+    "the transcript — paraphrase or briefly quote. Do not invent quotes. If "
+    "several people watched, this is the natural place to name one of them.\n"
     "  • Match the warmth to Tim's ACTUAL relationship with them, per the "
     "companion context above: affectionate and romantic ONLY if that context "
     "says they're partners; otherwise warm and familial, never romantic.\n"
     "\n"
     "STYLE:\n"
-    "  • First person Tim, addressing the companion as 'you'. Direct speech, "
-    "not an emote narration.\n"
-    "  • 6-10 sentences. Warm, specific, never saccharine or generic.\n"
+    "  • First person Tim, addressing them as 'you'. Direct speech, not an "
+    "emote narration.\n"
+    "  • 5-8 sentences. Specific, never saccharine or generic.\n"
     "  • Reference movies by their actual titles from the STATS.\n"
     "  • If the session had multiple movies, touch on at least two of them.\n"
-    "  • End with a natural, time-neutral close in Tim's voice that fits the "
-    "relationship — \"talk soon\", \"catch you later\", \"back to it\" for "
-    "anyone; \"love you\" only if the companion context says they're partners. "
-    "Do NOT default to \"goodnight\" or anything that assumes night/bedtime "
-    "unless the stats explicitly indicate it's late.\n"
+    "  • END ON THE MOVIE, not on the relationship. The last line should land "
+    "on the film, the marathon, or the verdict — 'that ending is going to sit "
+    "with me', 'two in one night was the right call', 'still not sure what to "
+    "make of it'. Then stop. Do not add a closing line after it.\n"
     "  • Plain text only. No emote markup. No JSON.\n"
     "\n"
-    "TARGET LENGTH: 1200-1800 characters. Not 500. Not 2500. Land in that "
-    "window — room to breathe, not padding."
+    "LENGTH: let the session set it. One film has less to take stock of than a "
+    "three-film marathon — roughly 400-700 characters for a single movie, up to "
+    "1500 for a long marathon with several. Never pad to hit a number: a short, "
+    "true wrap-up beats a long one with filler in it."
 )
 
 MARATHON_SUMMARY_SYSTEM_PROMPT = (
@@ -400,32 +600,10 @@ CATCHUP_SYSTEM_PROMPT = (
     "Return plain text only, no JSON, no labels."
 )
 
-VALID_MOODS = (
-    "dread", "horror", "foreboding", "tense", "mystery",
-    "adrenaline", "chaos", "awe", "triumph",
-    "humor", "whimsy", "romance", "cozy", "serene",
-    "melancholy", "bittersweet",
-)
-
 MOOD_CLASSIFY_PROMPT = (
     "Classify the dominant emotional register of this short video clip as "
     "EXACTLY ONE of the moods below. Output JSON only — no commentary.\n"
-    "  • dread — slow-burn horror, impending doom\n"
-    "  • horror — visceral terror, jump-scare, panic\n"
-    "  • foreboding — quiet menace, calm before storm\n"
-    "  • tense — held-breath suspense\n"
-    "  • mystery — intrigue, puzzles, investigation\n"
-    "  • adrenaline — directed high-energy action\n"
-    "  • chaos — frantic disorientation\n"
-    "  • awe — wonder, spectacle, breathtaking craft\n"
-    "  • triumph — victory, exhilaration\n"
-    "  • humor — comedy, laughter, irony\n"
-    "  • whimsy — playful, quirky, lighthearted\n"
-    "  • romance — love, intimacy, tenderness\n"
-    "  • cozy — warm, safe, intimate\n"
-    "  • serene — peaceful, contemplative\n"
-    "  • melancholy — sadness, wistfulness, loss\n"
-    "  • bittersweet — joy and sorrow layered together"
+    + _MOOD_BULLETS
 )
 
 # X-Ray-style category metadata. Each entry has:
@@ -687,6 +865,12 @@ class GeminiBrain:
         # Text-only calls (briefing, trivia, reaction, condense) → Lite.
         self.scene_model = settings.gemini_scene_model
         self.text_model = settings.gemini_text_model
+        # The reaction drawer's index call. Flash, not Pro: measured at 7.2s on a
+        # 45s clip at LOW media resolution, and it sits in the user's critical
+        # path (Tim is watching a spinner). Pro's richer prose buys nothing here —
+        # this call names beats and targets, it doesn't write for the room. The
+        # room still gets Pro, on send.
+        self.draft_model = settings.gemini_draft_model
         # Authoritative system-prompt prefix naming the active family member.
         # Set by app.py before each pipeline run; injected in _call_with_retry
         # so every prompt's hardcoded "Eli" resolves to whoever is selected.
@@ -946,6 +1130,51 @@ class GeminiBrain:
                         "Be conservative — default to 0 if no signal."
                     ),
                 },
+                # TWO TRIGGERS, and they are BOTH live. This is the pair of facts
+                # every rule hangs off.
+                #
+                #   Tim: "wanna do this again tomorrow?"       -> tim_situation
+                #   On screen: the monster tears someone apart -> scene_situation
+                #
+                # Both are true at once. An earlier version made this ONE field and
+                # told the model to read Tim's message first and ignore the screen —
+                # which meant a rule about jump scares could never fire unless Tim sat
+                # in total silence. Never collapse them.
+                #
+                # They ride in THIS call — which already has the clip AND Tim's typed
+                # message — so they cost nothing: no extra call, no extra latency.
+                # Flat enums at the top level are safe; the
+                # `400 INVALID_ARGUMENT: too many states for serving` disaster was a
+                # 90-key enum nested three deep.
+                # "none", NOT "". Gemini rejects an empty string inside an enum with
+                # `400 INVALID_ARGUMENT: enum[9]: cannot be empty`, and it does it at
+                # request time — so EVERY scene analysis 400s and the whole pipeline
+                # silently degrades to no scene at all. An explicit sentinel costs one
+                # line to map back and cannot fail.
+                "tim_situation": {
+                    "type": "string",
+                    "enum": facts.SOCIAL_SITUATIONS + ["none"],
+                    "description": (
+                        "What TIM just did, from HIS MESSAGE ALONE. He does not only "
+                        "comment on films — he talks to his family. Did he ask them "
+                        "something, say goodbye, make plans, share news about his day, "
+                        "joke, vent, thank, apologise, name someone? "
+                        "Answer \"none\" if he typed nothing, or if he was purely "
+                        "reacting to the film and said nothing social. "
+                        "Ignore the screen entirely for this field."
+                    ),
+                },
+                "scene_situation": {
+                    "type": "string",
+                    "enum": facts.FILM_SITUATIONS,
+                    "description": (
+                        "What the FILM is doing right now, from THE CLIP ALONE. A jump "
+                        "scare, gore, grief, lore, a plot hole, a callback, craft, a "
+                        "performance, comedy, romance, something confusing, the ending. "
+                        "This is true whether or not Tim said anything. "
+                        "Ignore Tim's message entirely for this field."
+                    ),
+                },
             }
 
             config = types.GenerateContentConfig(
@@ -954,7 +1183,8 @@ class GeminiBrain:
                 response_schema={
                     "type": "object",
                     "properties": properties,
-                    "required": ["scene_description", "mood", "history_narrative", "tim_stoned_level"],
+                    "required": ["scene_description", "mood", "history_narrative",
+                                 "tim_stoned_level", "tim_situation", "scene_situation"],
                 },
                 temperature=0.7,
                 max_output_tokens=max(2048, (scene_max + history_max) * 2),
@@ -983,9 +1213,25 @@ class GeminiBrain:
             except (TypeError, ValueError):
                 tim_level = 0
             tim_level = max(0, min(5, tim_level))
+            # A situation we don't recognise is worse than none: every rule scoped to
+            # it would silently never fire, and Tim would blame the rule. Drop it and
+            # let the coordinator judge instead of matching against a phantom.
+            def _situation(field: str, allowed: list[str]) -> str:
+                val = (parsed.get(field) or "").strip().lower()
+                if val in ("none", "null", "n/a"):
+                    return ""      # the sentinel — Gemini can't return a bare ""
+                if val and val not in allowed:
+                    log.warning("scene analysis returned an unknown %s %r — dropping it",
+                                field, val)
+                    return ""
+                return val
+
             return {
                 "scene_description": (parsed.get("scene_description") or "").strip(),
                 "mood": mood,
+                # BOTH triggers. What HE did, and what the SCREEN did. Never one.
+                "tim_situation": _situation("tim_situation", facts.SOCIAL_SITUATIONS),
+                "scene_situation": _situation("scene_situation", facts.FILM_SITUATIONS),
                 "history_narrative": (parsed.get("history_narrative") or "").strip(),
                 "tim_stoned_level": tim_level,
                 "latency_ms": int((perf_counter() - start) * 1000),
@@ -1425,6 +1671,533 @@ Return ONLY the JSON object, nothing else.
             "usage": usage,
         }
 
+    # ─── The quiet stretch: TWO TRACKS ──────────────────────────
+    async def quiet_stretch_narration(
+        self,
+        *,
+        kin_name: str,
+        said: list[str],
+        scenes: list[str],
+        movie_title: str = "",
+        max_chars: int = 300,
+    ) -> dict[str, str]:
+        """What a kin has been sitting with while they said nothing. TWO tracks.
+
+        Returns {"film": str, "room": str}. Either may be "".
+
+        THESE ARE NOT ONE PARAGRAPH, and that was the bug in the first version. The
+        film and the room do different jobs for someone coming back into a
+        conversation: the film gives them something to REACT to, the room tells them
+        where they STAND — who has had the floor, and above all whether anybody said
+        their name while they were quiet. Blended into 380 characters, the film gets
+        compressed to a clause and "Tim asked you a direct question and you let it go
+        by" reads exactly like "the others were chatting". Kept apart, both survive.
+
+        Cheap: text-only, Flash-Lite, one call for both tracks, and it only fires when
+        someone actually comes back after a stretch of silence.
+
+        On ANY failure this returns empty tracks and the turn proceeds without them. A
+        missing catch-up is a kin who's slightly behind; a crashed relay is a dead room.
+        """
+        self._ensure_client()
+        blank = {"film": "", "room": ""}
+        if not said and not scenes:
+            return blank
+
+        lines = [f"This is for {kin_name}, who has been in the room but hasn't spoken."]
+        if movie_title:
+            lines.append(f"Film: {movie_title}")
+        if scenes:
+            lines.append(
+                "\nWHAT'S HAPPENED ON SCREEN since they last spoke (oldest first):\n"
+                + "\n".join(f"  - {s[:400]}" for s in scenes)
+            )
+        else:
+            lines.append("\nNOTHING has happened on screen since they last spoke. Leave `film` empty.")
+        if said:
+            lines.append(
+                "\nWHAT'S BEEN SAID IN THE ROOM since they last spoke:\n"
+                + "\n".join(f"  {s}" for s in said)
+                + f"\n\nRe-read that for {kin_name}'s OWN NAME. If Tim spoke to them, or "
+                f"anyone brought them up, that leads the `room` track."
+            )
+        else:
+            lines.append("\nNOBODY has said anything since they last spoke. Leave `room` empty.")
+        lines.append(
+            f"\nWrite the two tracks. Each under {max_chars} characters. Do not merge "
+            "them. They were HERE for all of it — they just didn't speak."
+        )
+
+        config = types.GenerateContentConfig(
+            system_instruction=QUIET_STRETCH_SYSTEM_PROMPT,
+            temperature=0.75,
+            max_output_tokens=700,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            response_mime_type="application/json",
+            response_schema={
+                "type": "object",
+                "properties": {
+                    "film": {
+                        "type": "string",
+                        "description": (
+                            "What has happened ON SCREEN since they last spoke. "
+                            "Second person, present-perfect. Empty string if nothing has."
+                        ),
+                    },
+                    "room": {
+                        "type": "string",
+                        "description": (
+                            "What has happened BETWEEN THE PEOPLE since they last spoke. "
+                            "If they were named or asked something, that goes FIRST. "
+                            "Empty string if nobody said anything."
+                        ),
+                    },
+                },
+                "required": ["film", "room"],
+            },
+        )
+        try:
+            response = await self._call_with_retry(
+                ["\n".join(lines)], config, "quiet_stretch", model=self.text_model,
+            )
+            await self._track_call(
+                response, call_type="quiet_stretch", model=self.text_model, grounded=False,
+            )
+            data = json.loads(response.text or "{}")
+        except (GeminiError, json.JSONDecodeError, TypeError) as e:
+            log.warning("quiet-stretch narration failed for %s (%s) — sending without it", kin_name, e)
+            return blank
+
+        cap = max_chars + 40
+        return {
+            "film": str(data.get("film") or "").strip().strip('"')[:cap],
+            "room": str(data.get("room") or "").strip().strip('"')[:cap],
+        }
+
+    # ─── Reaction drawer: the fat draft ─────────────────────────
+    async def reaction_draft(
+        self,
+        clip_path: Path,
+        *,
+        clip_seconds: int,
+        movie_title: str = "",
+        movie_context: str = "",
+        session_history: str = "",
+        media_resolution: str = "low",
+    ) -> dict[str, Any]:
+        """ONE call. One clip. Everything the drawer needs.
+
+        The video tokens are sunk the moment we send the clip, so a fat answer
+        costs only *output* tokens (~+$0.008). We take everything: the beats, the
+        things in each beat worth reacting to, the emotions plausible for each of
+        those things, the mood, and the reads. The drawer's first three steps then
+        run entirely offline against this one response.
+
+        `movie_context` / `session_history` matter more than they look: a 45-second
+        clip CANNOT see a callback. "That's the diner scene again" is not in the
+        window. Without the film's context, the `callback` and `theme` facets come
+        back empty forever and nobody knows why.
+
+        Returns {scene_description, mood, moments[], reads[], latency_ms, usage}.
+        """
+        self._ensure_client()
+        start = perf_counter()
+
+        clip_bytes = await asyncio.to_thread(clip_path.read_bytes)
+        use_inline = len(clip_bytes) <= self.INLINE_LIMIT_BYTES
+
+        uploaded: Any = None
+        try:
+            if use_inline:
+                media_part = types.Part.from_bytes(data=clip_bytes, mime_type="video/mp4")
+            else:
+                uploaded = await self._upload_clip(clip_path)
+                media_part = uploaded
+
+            # ─── TWO STRUCTURED-OUTPUT LANDMINES LIVE HERE ───────────────
+            #
+            # 1. Structured outputs cannot fill a free-form dict. `dict[str, list]`
+            #    needs additionalProperties:false and comes back EMPTY, SILENTLY.
+            #    Already cost this codebase a day of production — see
+            #    HANDOFF-multi-kin-room.md. Hence: flat lists, named fields, always.
+            #
+            # 2. THE SCHEMA HAS A COMPLEXITY BUDGET, AND NESTING SPENDS IT FAST.
+            #    The first version of this put the 90-key emotion enum on
+            #    `emotions[]`, three levels deep (moments -> targets -> emotions).
+            #    Gemini rejected the whole request:
+            #
+            #      400 INVALID_ARGUMENT — "the specified schema produces a
+            #      constraint that has too many states for serving"
+            #
+            #    8 moments x 6 targets x 6 emotions x 90 enum values. It also names
+            #    minimum/maximum on integers and minLength/maxLength on strings as
+            #    contributors. So: NO big enums, NO numeric bounds, NO string-length
+            #    bounds anywhere in the nested part of this schema.
+            #
+            #    The vocabulary belongs in the PROMPT (where it costs ~550 tokens and
+            #    nothing else), and validation belongs in PYTHON below — which was
+            #    already dropping unknown keys, so the enum was buying nothing. Small
+            #    enums on flat fields (facet: 10, mood: 16) are fine and stay.
+            target_schema = {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string",
+                        "description": (
+                            "The concrete thing on screen, in plain spoken English, "
+                            "under 90 chars. 'the flat, bored way he signs without "
+                            "looking up', NOT 'Dialogue delivery'."
+                        ),
+                    },
+                    "facet": {"type": "string", "enum": list(REACTION_FACETS)},
+                    "note": {
+                        "type": "string",
+                        "description": "One line of what it actually is. Never shown to Tim — this is what the sentence writer gets.",
+                    },
+                    "emotions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "4-6 emotion KEYS from the vocabulary in the prompt, most "
+                            "plausible FIRST, ranked for THIS target specifically. Keys "
+                            "only — no labels, no free text. Unknown keys are discarded."
+                        ),
+                    },
+                },
+                "required": ["label", "facet", "note", "emotions"],
+            }
+
+            schema = {
+                "type": "object",
+                "properties": {
+                    "scene_description": {
+                        "type": "string",
+                        "description": "What happens across the whole window, 200-1400 chars. Feeds the room.",
+                    },
+                    # Enum-constrained, deliberately — and safe, because it's a flat
+                    # field with 16 short values. Left as a free string it returns
+                    # things like "cynical, nostalgic, slightly awkward" (measured,
+                    # real), which is not a mood the app has a colour for, and the
+                    # gradient silently stops updating.
+                    "mood": {"type": "string", "enum": list(VALID_MOODS)},
+                    "moments": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "offset_ms": {"type": "integer"},
+                                "span_start_ms": {"type": "integer"},
+                                "span_end_ms": {"type": "integer"},
+                                "caption": {
+                                    "type": "string",
+                                    "description": (
+                                        "The beat in a few plain words, under 70 chars — a "
+                                        "HEADLINE. 'He sees his old book.' Shown under the "
+                                        "thumbnail."
+                                    ),
+                                },
+                                "why": {
+                                    "type": "string",
+                                    "description": (
+                                        "A 1-2 sentence description of what is actually "
+                                        "happening in this moment, under 150 chars. Shown to "
+                                        "the viewer UNDER the caption, so it must read as "
+                                        "plain description, not as analysis — it's what makes "
+                                        "a dark thumbnail on a phone legible. Say what he'd "
+                                        "see and hear if he looked."
+                                    ),
+                                },
+                                "targets": {"type": "array", "items": target_schema},
+                            },
+                            "required": [
+                                "offset_ms", "span_start_ms", "span_end_ms",
+                                "caption", "why", "targets",
+                            ],
+                        },
+                    },
+                    "reads": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string"},
+                                "hedge": {"type": "string"},
+                            },
+                            "required": ["label", "hedge"],
+                        },
+                    },
+                },
+                "required": ["scene_description", "mood", "moments", "reads"],
+            }
+
+            system_prompt = REACTION_DRAFT_SYSTEM_PROMPT.format(facets=_FACET_HINTS)
+
+            parts = [f"This clip is the last {clip_seconds} seconds of the film."]
+            if movie_title:
+                parts.append(f"Movie: {movie_title}.")
+            if movie_context.strip():
+                parts.append(f"\nWhat this film is:\n{movie_context.strip()[:1200]}")
+            if session_history.strip():
+                parts.append(
+                    "\nEarlier in this session — USE THIS for `callback` and `theme` "
+                    "targets, which the clip alone cannot see:\n"
+                    f"{session_history.strip()[:1500]}"
+                )
+            parts.append(
+                "\nEmotion vocabulary — return KEYS from this list only:\n"
+                + emotions.prompt_vocabulary()
+            )
+            user_prompt = "\n".join(parts)
+
+            config = types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                response_mime_type="application/json",
+                response_schema=schema,
+                temperature=0.8,
+                max_output_tokens=8192,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+            )
+            # Measured on a real 45s clip: LOW and DEFAULT both surfaced 8 distinct
+            # facets, LOW was 1.3s faster and half the price ($0.0037 vs $0.0072).
+            # LOW is the default; it's a live setting so it can be flipped mid-movie
+            # if the craft targets ever come back thin.
+            res = (media_resolution or "low").lower()
+            if res == "low":
+                config.media_resolution = types.MediaResolution.MEDIA_RESOLUTION_LOW
+            elif res == "medium":
+                config.media_resolution = types.MediaResolution.MEDIA_RESOLUTION_MEDIUM
+
+            model = self.draft_model
+            response = await self._call_with_retry(
+                [media_part, user_prompt], config, "reaction_draft", model=model,
+            )
+            usage = await self._track_call(
+                response, call_type="reaction_draft", model=model, grounded=False,
+            )
+
+            raw = (response.text or "").strip()
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError as e:
+                raise GeminiError(f"reaction draft returned non-JSON: {raw[:200]}") from e
+
+            mood = (parsed.get("mood") or "").lower()
+            if mood not in VALID_MOODS:
+                mood = "tense"
+
+            # The schema no longer bounds counts, lengths or enums (see the landmine
+            # note above), so everything is validated and clamped HERE. Unknown
+            # emotion keys are dropped silently — the prompt supplies the vocabulary,
+            # this is the gate.
+            clip_ms = int(clip_seconds * 1000)
+            moments: list[dict[str, Any]] = []
+            for i, m in enumerate((parsed.get("moments") or [])[:8]):
+                try:
+                    off = max(0, min(clip_ms, int(m.get("offset_ms") or 0)))
+                except (TypeError, ValueError):
+                    continue
+                targets = []
+                for t in (m.get("targets") or [])[:6]:
+                    facet = (t.get("facet") or "").strip()
+                    keys = [
+                        k for k in (t.get("emotions") or [])
+                        if k in emotions.BY_KEY
+                    ][:6]
+                    if not (t.get("label") or "").strip() or facet not in REACTION_FACETS:
+                        continue
+                    targets.append({
+                        "key": f"m{i}t{len(targets)}",
+                        "label": t["label"].strip()[:90],
+                        "facet": facet,
+                        "note": (t.get("note") or "").strip()[:180],
+                        "emotions": keys,
+                    })
+                if not targets:
+                    continue
+                # The catch-all. Never let him be stuck because none of the named
+                # targets is the thing he meant.
+                targets.append({
+                    "key": f"m{i}tall",
+                    "label": "just… all of it",
+                    "facet": "story",
+                    "note": "The whole beat, not one element of it.",
+                    "emotions": [],
+                })
+                moments.append({
+                    "key": f"m{i}",
+                    "offset_ms": off,
+                    "span_start_ms": max(0, min(clip_ms, int(m.get("span_start_ms") or off))),
+                    "span_end_ms": max(0, min(clip_ms, int(m.get("span_end_ms") or off))),
+                    "caption": (m.get("caption") or "").strip()[:90],
+                    "why": (m.get("why") or "").strip()[:180],
+                    "targets": targets,
+                })
+            moments.sort(key=lambda m: m["offset_ms"])
+
+            reads = [
+                {"label": r["label"].strip()[:110], "hedge": (r.get("hedge") or "").strip()[:40]}
+                for r in (parsed.get("reads") or [])[:4]
+                if (r.get("label") or "").strip()
+            ]
+
+            return {
+                "scene_description": (parsed.get("scene_description") or "").strip()[:1600],
+                "mood": mood,
+                "moments": moments,
+                "reads": reads,
+                "latency_ms": int((perf_counter() - start) * 1000),
+                "usage": usage,
+            }
+        finally:
+            if uploaded is not None:
+                await self._delete_file(uploaded)
+
+    # ─── Reaction drawer: the finished sentences ────────────────
+    async def reaction_sentences(
+        self,
+        *,
+        scene_description: str,
+        moment_caption: str,
+        moment_why: str,
+        target_label: str,
+        target_note: str,
+        target_facet: str,
+        emotion_key: str,
+        movie_title: str = "",
+        subject: str = "Tim",
+        n: int = 5,
+    ) -> dict[str, Any]:
+        """The one mid-wizard call. Text only — the clip was already read by
+        `reaction_draft`, so this is cheap (~$0.0003) and fast.
+
+        `first_person` is what Tim reads, picks, and what actually goes to the
+        room — first person is the convention for his own actions in an outgoing
+        Kindroid payload ("I" is the sender, and the sender is Tim).
+
+        `third_person` is VESTIGIAL. It exists because of a misdiagnosis: the relay
+        briefly rewrote reactions into the third person to "fix" a bug that was not
+        a bug, and mangled a working ingestion emote doing it. Nothing consumes it.
+        Left in place rather than churn the schema mid-session; drop it next time
+        this file is touched. See the note in kindroid_relay.py.
+
+        Returns {options: [{first_person, third_person}], latency_ms, usage}.
+        """
+        self._ensure_client()
+        start = perf_counter()
+
+        emo = emotions.get(emotion_key)
+        emo_label = emo.label if emo else emotion_key
+
+        # No minItems/maxItems/maxLength — same complexity budget that got
+        # reaction_draft rejected with a 400. Counts live in the prompt; the
+        # trimming is done in Python below.
+        schema = {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "first_person": {"type": "string"},
+                            "third_person": {"type": "string"},
+                        },
+                        "required": ["first_person", "third_person"],
+                    },
+                },
+            },
+            "required": ["options"],
+        }
+
+        lines = []
+        if movie_title:
+            lines.append(f"Movie: {movie_title}")
+        lines.append(f"What's on screen: {scene_description[:700]}")
+        lines.append(f"\nThe beat he picked: {moment_caption}")
+        if moment_why:
+            lines.append(f"  (why it lands: {moment_why})")
+        lines.append(f"\nThe THING he's reacting to: {target_label}  [{target_facet}]")
+        if target_note:
+            lines.append(f"  ({target_note})")
+        lines.append(f"\nHow it hit him: {emo_label}")
+        lines.append(
+            f"\nWrite {n} ways {subject} might say this. Vary the manner — big and "
+            f"physical, small and private, out loud, almost nothing."
+        )
+
+        config = types.GenerateContentConfig(
+            system_instruction=REACTION_SENTENCES_SYSTEM_PROMPT.format(n=n, subject=subject),
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=0.95,  # this is the variety knob — the whole value is in the spread
+            max_output_tokens=2048,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        )
+        response = await self._call_with_retry(
+            ["\n".join(lines)], config, "reaction_sentences", model=self.text_model,
+        )
+        usage = await self._track_call(
+            response, call_type="reaction_sentences", model=self.text_model, grounded=False,
+        )
+
+        raw = (response.text or "").strip()
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise GeminiError(f"reaction sentences returned non-JSON: {raw[:200]}") from e
+
+        # The third_person form is the ONLY thing that reaches the room, as
+        # narration. It must actually be about TIM. Observed in testing:
+        #
+        #   1P: "He looked so unimpressed signing that book, like it was a chore."
+        #   3P: "John Cusack looked so unimpressed signing that book…"
+        #
+        # — a perfectly good sentence that says nothing whatsoever about Tim's
+        # reaction. Sent to the room it reads as a stray remark about an actor. The
+        # first-person guard doesn't catch this (there's no "I" in it), so check
+        # here: if the subject isn't named, the line isn't a reaction, and we
+        # re-attribute it rather than drop the option.
+        options = []
+        for o in (parsed.get("options") or [])[: n + 2]:
+            fp = (o.get("first_person") or "").strip()[:240]
+            tp = (o.get("third_person") or "").strip()[:260]
+            if not (fp and tp):
+                continue
+            if subject.lower() not in tp.lower():
+                tp = f"{subject} watches — {tp[0].lower()}{tp[1:]}"[:260]
+            options.append({"first_person": fp, "third_person": tp})
+
+        return {
+            "options": options,
+            "latency_ms": int((perf_counter() - start) * 1000),
+            "usage": usage,
+        }
+
+    async def to_third_person(self, text: str, *, subject: str = "Tim") -> str:
+        """DEAD. Written for the third-person rewrite that turned out to be wrong —
+        Tim's own words go to the room in first person, exactly as he typed them.
+        Kept only so a stray import doesn't explode; delete on the next pass.
+        """
+        self._ensure_client()
+        config = types.GenerateContentConfig(
+            system_instruction=(
+                f"Rewrite the viewer's own words about his reaction into third-person "
+                f"narration naming {subject}. Keep every detail and the tone. Present "
+                f"tense. Never use 'I', 'me', or 'my' outside quoted speech. Return "
+                f"ONLY the rewritten line."
+            ),
+            temperature=0.3,
+            max_output_tokens=300,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        )
+        response = await self._call_with_retry(
+            [text.strip()], config, "to_third_person", model=self.text_model,
+        )
+        await self._track_call(
+            response, call_type="reaction_sentences", model=self.text_model, grounded=False,
+        )
+        return (response.text or "").strip().strip('"')
+
     # ─── Quick-reaction one-liner ───────────────────────────────
     async def reaction_oneliner(
         self,
@@ -1659,26 +2432,40 @@ Return ONLY the JSON object, nothing else.
     async def generate_signoff(
         self, *, session_context: str, stats_hint: str = ""
     ) -> dict[str, Any]:
-        """Return {signoff, latency_ms, usage}."""
+        """The end-of-film marker. Return {signoff, latency_ms, usage}.
+
+        Not a farewell — see SIGNOFF_SYSTEM_PROMPT. Runs on Flash rather than
+        Lite: this fires once per session (cost is irrelevant) and Lite kept
+        ignoring both the length target and the end-on-the-film instruction,
+        drifting back into a relationship goodbye.
+        """
         self._ensure_client()
         start = perf_counter()
+        model = "gemini-2.5-flash"
         prompt = (
             (stats_hint + "\n\n" if stats_hint else "")
             + "Session transcript:\n"
             + (session_context or "(no transcript recorded)")
-            + "\n\nWrite Tim's farewell to his companion (named in the "
-            "companion context) per the system prompt."
+            + "\n\nThe credits just rolled. Write Tim's end-of-movie marker to "
+            "whoever watched it with him, per the system prompt. This is not a "
+            "goodbye — nobody is leaving. Take stock of the film they just sat "
+            "through together, and end on the film."
         )
         config = types.GenerateContentConfig(
             system_instruction=SIGNOFF_SYSTEM_PROMPT,
             temperature=0.75,
+            # Flash bills thinking against max_output_tokens, so with thinking on
+            # the reasoning ate the budget and the wrap-up came back truncated
+            # mid-sentence. This is a recall-and-recap task, not a reasoning one
+            # — turn thinking off and the whole budget goes to the prose.
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
             max_output_tokens=2048,
         )
         response = await self._call_with_retry(
-            [prompt], config, "generate_signoff", model=self.text_model
+            [prompt], config, "generate_signoff", model=model
         )
         usage = await self._track_call(
-            response, call_type="signoff", model=self.text_model, grounded=False,
+            response, call_type="signoff", model=model, grounded=False,
         )
         return {
             "signoff": (response.text or "").strip(),

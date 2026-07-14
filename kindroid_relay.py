@@ -81,6 +81,28 @@ class KindroidError(Exception):
     """Any non-transient failure talking to Kindroid."""
 
 
+# NOTE — a "first-person guard" briefly lived here, rewriting Tim's reaction
+# narration into the third person on the theory that Kindroid renders an emote as
+# the RECIPIENT's action ("I snort" reaching Bobby as *Bobby* snorting).
+#
+# THAT IS WRONG. Kindroid renders the OUTGOING message as the SENDER's, and the
+# sender is Tim. `_(* I snort *)_` means TIM snorts, to every recipient. First
+# person is, and always was, the convention for Tim's own actions:
+#
+#     HANDOFF-multi-kin-room.md:71 — _(* I hold out the bag and Bobby reads the
+#                                      label first… *)_
+#     stoned_tracker.py            — "Tim's POV… first person, present tense"
+#     REACTION_SYSTEM_PROMPT       — "FIRST PERSON (Tim's voice)"
+#
+# The guard mangled a working ingestion emote into
+#     Tim's reaction, in his own words: "I hand Lilly a gummy…"
+# and shipped it to the room before the logs caught it.
+#
+# The real landmines are DIFFERENT and are handled elsewhere: SECOND person ("you")
+# broadcast to a room, and RAW TEXT aimed at one kin being overheard by another.
+# See coordinator._PACKAGE_SYSTEM. Do not "fix" first person again.
+
+
 _PARAGRAPH_SPLIT = re.compile(r"\n\s*\n+")
 
 
@@ -112,6 +134,8 @@ def build_payload(
     stoned_narration: str = "",
     reaction_narration: str = "",
     presence_narration: str = "",
+    quiet_film: str = "",
+    quiet_room: str = "",
     typed_dialogue: str = "",
 ) -> str:
     """Assemble the Kindroid message body per our emote convention.
@@ -121,8 +145,17 @@ def build_payload(
       2. Stoned-state directive emote (telling the kin how they're feeling).
       3. Presence emote (where they are + who else is in the room) — early so
          it consistently gates the kin's behavior/intimacy each turn.
-      4. Scene / history / reaction emotes (one block per paragraph).
-      5. Typed dialogue, plain.
+      4. THE TWO QUIET-STRETCH EMOTES — what they've been sitting with since they
+         last spoke. TWO separate blocks, never merged:
+             quiet_film — what's happened ON SCREEN. The bridge from the last thing
+                          they remember to now; without it they'd read the current
+                          scene with a hole where the middle of the film should be.
+             quiet_room — what's happened BETWEEN THE PEOPLE, and whether anyone said
+                          their name. This one goes SECOND, closest to Tim's words,
+                          because it's the one that most often needs answering.
+         Both BEFORE the scene: they are the run-up to this moment, not a footnote.
+      5. Scene / history / reaction emotes (one block per paragraph).
+      6. Typed dialogue, plain.
     """
     lines: list[str] = [_FORMAT_DIRECTIVE_EMOTE]
     # Stoned directive (the kin's state) comes second so the formatting
@@ -130,6 +163,8 @@ def build_payload(
     # second thing they see — both before any scene/reaction content.
     lines.extend(_wrap_paragraphs_as_emotes(stoned_narration or ""))
     lines.extend(_wrap_paragraphs_as_emotes(presence_narration or ""))
+    lines.extend(_wrap_paragraphs_as_emotes(quiet_film or ""))
+    lines.extend(_wrap_paragraphs_as_emotes(quiet_room or ""))
     for block in (scene_narration, history_narrative, reaction_narration):
         lines.extend(_wrap_paragraphs_as_emotes(block or ""))
     body = "\n".join(lines)

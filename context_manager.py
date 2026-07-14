@@ -6,7 +6,19 @@ moments into a first-person callback narrative for Tim's next Kindroid message.
 """
 from typing import Optional
 
+import characters
 from database import db
+
+
+def _speaker_name(character_key: Optional[str]) -> str:
+    """Display name for whichever kin wrote a row.
+
+    Rows predating the roster have no `character_key` (the migration backfills
+    them to 'eli'); an unknown key falls back to Eli rather than dropping the
+    turn, since a nameless line in the history is worse than a misattributed one.
+    """
+    char = characters.get_character(character_key) if character_key else None
+    return char.first_name if char else "Eli"
 
 
 async def build_session_history_for_gemini(
@@ -31,7 +43,7 @@ async def build_session_history_for_gemini(
         sequence of turns, formatted for Gemini to read.
     """
     rows = await db.fetch_all(
-        """SELECT sender, content, emote_text, spoken_text, mood, timestamp
+        """SELECT sender, character_key, content, emote_text, spoken_text, mood, timestamp
            FROM messages
            WHERE session_id = ?
              AND sender IN ('tim', 'eli', 'reaction')
@@ -63,7 +75,10 @@ async def build_session_history_for_gemini(
             elif not parts and (r["content"] or "").strip():
                 parts.append((r["content"] or "").strip())
             if parts:
-                lines.append("Eli replied: " + " ".join(parts))
+                # Name whoever actually spoke. With a room, "Eli replied" for
+                # every kin would make the history unreadable — and would teach
+                # Gemini that Bobby's lines were Eli's.
+                lines.append(f"{_speaker_name(r['character_key'])} replied: " + " ".join(parts))
 
     if max_exchanges and max_exchanges > 0:
         # Keep the last N Tim turns worth of context (plus the Eli replies).
@@ -73,6 +88,83 @@ async def build_session_history_for_gemini(
             lines = lines[cutoff:]
 
     return "\n".join(lines)
+
+
+async def build_quiet_stretch(session_id: str, kin_key: str) -> Optional[dict]:
+    """What has happened since this kin last opened their mouth.
+
+    Silence is the default in a room now: a kin who has nothing to add gets no
+    Kindroid message at all. That's what makes a turn cheap — but it means their
+    conversation thread has a HOLE. They don't know what Tim said, what the others
+    said, or what happened in the film while they sat there.
+
+    So when they come back, they get caught up. Note the framing, because it
+    matters: they were NOT away. They were in the room the whole time, watching,
+    listening, not speaking. This isn't a briefing on what they missed — it's what
+    they've been quietly sitting with. Bobby returns with "I've been listening to
+    you two go on about a grey box for ten minutes", which is exactly who he is.
+
+    Returns None if they spoke recently enough to have nothing to catch up on.
+    """
+    last = await db.fetch_one(
+        "SELECT id FROM messages WHERE session_id = ? AND character_key = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (session_id, kin_key),
+    )
+    since_id = int(last["id"]) if last else 0
+
+    rows = await db.fetch_all(
+        """SELECT sender, character_key, content, emote_text, spoken_text, scene_context
+           FROM messages
+           WHERE session_id = ? AND id > ?
+             AND sender IN ('tim', 'eli', 'reaction')
+           ORDER BY id ASC""",
+        (session_id, since_id),
+    )
+    if not rows:
+        return None
+
+    said: list[str] = []
+    # The film is the half that actually matters. A silent kin's thread carries no
+    # scene descriptions at all, so without this they'd come back with no idea what
+    # has happened in the movie — which is far more disorienting than missing a
+    # remark. Dedupe: consecutive turns often carry the same scene.
+    scenes: list[str] = []
+    tim_turns = 0
+
+    for r in rows:
+        sender = r["sender"]
+        if sender == "tim":
+            content = (r["content"] or "").strip()
+            if content:
+                said.append(f'Tim said: "{content}"')
+                tim_turns += 1
+        elif sender == "reaction":
+            content = (r["content"] or "").strip()
+            if content:
+                said.append(f"Tim reacted: {content}")
+                tim_turns += 1
+        elif sender == "eli":
+            if r["character_key"] == kin_key:
+                continue  # their own line — they know what they said
+            spoken = (r["spoken_text"] or "").strip()
+            emote = (r["emote_text"] or "").strip()
+            body = spoken or emote or (r["content"] or "").strip()
+            if body:
+                said.append(f"{_speaker_name(r['character_key'])}: {body[:220]}")
+
+        sc = (r["scene_context"] or "").strip()
+        if sc and (not scenes or scenes[-1] != sc):
+            scenes.append(sc)
+
+    if not said and not scenes:
+        return None
+
+    return {
+        "tim_turns": tim_turns,
+        "said": said[-14:],       # the conversation, most recent
+        "scenes": scenes[-4:],    # the film's progression
+    }
 
 
 def stoned_narration(level: int, method: Optional[str] = None, *, who: str = "tim") -> str:

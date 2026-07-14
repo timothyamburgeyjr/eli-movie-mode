@@ -264,6 +264,18 @@ def _parse_meta(m: dict) -> dict:
         "season_number": season_number,
         "episode_number": episode_number,
         "display_title": display_title,
+        # WHO IS ACTUALLY PLAYING THIS. Until now `Player` was opened, `state` was
+        # read out of it, and every other field was thrown on the floor — so the app
+        # could not answer "which client is Tim watching on?", which is the first
+        # question you need for anything to do with playback control.
+        #
+        # (The answer, for the record, turned out to be "Plex Web", which cannot be
+        # remote-controlled at all — but we could only establish that by looking.)
+        "player_product": player.get("product"),          # "Plex Web" / "Plex for Android" …
+        "player_device": player.get("device"),
+        "player_title": player.get("title"),              # "Tim's iPhone"
+        "player_id": player.get("machineIdentifier"),
+        "player_local": bool(player.get("local")),
     }
 
 

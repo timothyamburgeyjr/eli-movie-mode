@@ -8,9 +8,16 @@ services:
     ports:
       - "8765:8000"
     volumes:
-      # SQLite DB + any other internal state
+      # SQLite DB + any other internal state (incl. data/affinity sheets)
       - ./data:/app/data
       - ./static/frames:/app/static/frames
+      # Downscaled kin portraits. Persisted so a restart doesn't re-run ffmpeg
+      # over the whole roster; they rebuild automatically when a vault bust changes.
+      - ./static/portraits:/app/static/portraits
+      # Movie Mode button art, one PNG per mood family. Bind-mounted rather than baked into
+      # the image so dropping in new art is a page reload, not a rebuild — the whole point
+      # is that the art can be iterated on without touching the container.
+      - ./static/mood:/app/static/mood
       # Bind-mount D:/Vault (host) → /journals (container). Tim's journal files
       # land on the host filesystem so external skills can pick them up.
       - D:/Vault:/journals

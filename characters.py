@@ -15,13 +15,18 @@ Two sources, two jobs:
 Everything here is pure/sync and depends only on `config`. The async
 "who is currently selected" lookup lives in app.py (it needs the DB).
 """
+import json
+import logging
 import re
+import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
 from config import settings
+
+log = logging.getLogger(__name__)
 
 DEFAULT_KEY = "eli"
 
@@ -55,6 +60,11 @@ class Character:
     ai_id: str
     vault_dir: str
     nsfw_ok: bool
+    # Optional 7th registry column: a portrait path relative to `vault_dir`,
+    # overriding auto-discovery. Only needed when the convention doesn't fit —
+    # e.g. Adam has both a Human and an Android bust and only he knows which
+    # face belongs in the picker. Blank for everyone else.
+    portrait: str = ""
 
     @property
     def is_placeholder(self) -> bool:
@@ -109,6 +119,8 @@ def _parse_registry(text: str) -> list[Character]:
         # Defensive: skip a header row if one ever lands inside the block.
         if key.lower() == "key" or "kindroid_ai_id" in stripped:
             continue
+        # 7th column (portrait override) is optional — older rows won't have it.
+        portrait = parts[6] if len(parts) > 6 else ""
         chars.append(
             Character(
                 key=key.lower(),
@@ -117,6 +129,7 @@ def _parse_registry(text: str) -> list[Character]:
                 ai_id=ai_id,
                 vault_dir=vault_dir,
                 nsfw_ok=nsfw.lower() in ("yes", "true", "1"),
+                portrait=portrait,
             )
         )
     return chars
@@ -135,6 +148,72 @@ def load_roster() -> tuple[Character, ...]:
 def selectable() -> list[Character]:
     """Roster members the user can actually switch to (real AI IDs only)."""
     return [c for c in load_roster() if not c.is_placeholder]
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Identity — a key is a handle, not an identity
+# ═══════════════════════════════════════════════════════════════════
+#
+# `bobby` is a name. Names change. Fix a typo in the registry, re-key someone, and
+# every rule Tim ever wrote for that person orphans SILENTLY — the rules stay in the
+# table, they simply never match anyone again, and there is nothing on screen to say
+# so. That is the worst kind of data loss: invisible.
+#
+# So each person gets a UUID, minted once, and it never changes for as long as they
+# exist. The registry key stays as the human-readable handle. The UUID is who they
+# ARE, and the rules and the profile hang off it.
+#
+# NOT the Kindroid `ai_id`, tempting as it is. That is KINDROID'S identity for them,
+# not Tim's. Rebuild a companion over there and it changes — and his family would lose
+# everything he'd taught the room about them. Their identity should belong to him.
+#
+# The file is ours, in `data/`. Nothing ever writes to Tim's vault.
+_IDENTITY_PATH = Path("data") / "kin_identity.json"
+_identities: Optional[dict[str, str]] = None
+
+
+def _load_identities() -> dict[str, str]:
+    global _identities
+    if _identities is not None:
+        return _identities
+    try:
+        _identities = json.loads(_IDENTITY_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        _identities = {}
+    return _identities
+
+
+def _save_identities(ids: dict[str, str]) -> None:
+    _IDENTITY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _IDENTITY_PATH.write_text(json.dumps(ids, indent=2), encoding="utf-8")
+
+
+def kin_uuid(key: str) -> str:
+    """This person's permanent id. Minted on first sight; never changes after."""
+    key = (key or "").lower()
+    if not key:
+        return ""
+    ids = _load_identities()
+    if key not in ids:
+        ids[key] = str(uuid.uuid4())
+        _save_identities(ids)
+        log.info("minted identity for %s: %s", key, ids[key])
+    return ids[key]
+
+
+def key_for_uuid(kin_id: str) -> Optional[str]:
+    """The handle for an identity. None if we've never seen it."""
+    for k, v in _load_identities().items():
+        if v == kin_id:
+            return k
+    return None
+
+
+def ensure_identities() -> dict[str, str]:
+    """Every roster member has an id. Idempotent — safe on every boot."""
+    for c in load_roster():
+        kin_uuid(c.key)
+    return dict(_load_identities())
 
 
 def get_character(key: Optional[str]) -> Optional[Character]:
@@ -159,6 +238,56 @@ def ai_id_for(key: Optional[str]) -> str:
     if char and not char.is_placeholder:
         return char.ai_id
     return settings.kindroid_ai_id
+
+
+# ─── Portraits (vault Visual References → roster picker + chat avatars) ───
+# Every kin keeps their art in a `Visual References/` folder, but the nesting
+# below it is inconsistent (`Bust References/`, `Bust Shots/`, or just flat), so
+# we match on the filename rather than the path. One rule covers the roster.
+_PORTRAIT_RE = re.compile(r"bust.*front", re.IGNORECASE)
+_PORTRAIT_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+_PORTRAIT_SUBDIR = "Visual References"
+
+# Scoping the search to `Visual References/` is load-bearing, not tidiness:
+# Jeff has a STRAY duplicate `Bust References/` folder at his top level, and a
+# whole-folder search finds that one first.
+
+
+def _portrait_rank(path: Path) -> tuple[int, str]:
+    """Sort key when a kin has more than one front bust.
+
+    Adam has both a Human and an Android bust; prefer the human face for the
+    picker. Kins with only a non-human bust (Jeff is a robot) are unaffected —
+    there's nothing to prefer over.
+    """
+    stem = path.stem.lower()
+    return (0 if "human" in stem else 1, stem)
+
+
+def portrait_source(char: Character) -> Optional[Path]:
+    """Locate a kin's front bust in the vault. None if they have no art.
+
+    The registry's optional `portrait` column wins when present; otherwise we
+    search `{vault_dir}/Visual References/` for a `bust…front` image.
+    """
+    base = Path(settings.vault_root) / char.vault_dir
+    if char.portrait:
+        override = base / char.portrait
+        return override if override.is_file() else None
+
+    root = base / _PORTRAIT_SUBDIR
+    if not root.is_dir():
+        return None
+    candidates = [
+        p
+        for p in root.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() in _PORTRAIT_EXTS
+        and _PORTRAIT_RE.search(p.stem)
+    ]
+    if not candidates:
+        return None
+    return sorted(candidates, key=_portrait_rank)[0]
 
 
 # ─── Persona (vault Configuration → Gemini scaffolding) ───

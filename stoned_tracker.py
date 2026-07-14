@@ -79,6 +79,50 @@ def compute_level(method: str, minutes_since: float, peak_level: Optional[int] =
     return max(0, round(peak * frac))
 
 
+def curve_phase(method: Optional[str], minutes_since: Optional[float]) -> dict:
+    """Where someone actually is on their curve, for the UI.
+
+    The vibe panel used to say "On the way down naturally" the moment anyone was
+    high — a hardcoded string, computed from nothing. Ten minutes into an edible
+    it told Tim his family were already coming down, when in fact an edible holds
+    its peak for 90 minutes. Say the true thing instead.
+    """
+    if not method or method not in METHOD_CURVES or minutes_since is None:
+        return {"phase": "", "label": "", "minutes": 0, "short": ""}
+    curve = METHOD_CURVES[method]
+    mins = int(minutes_since)
+
+    # COMING UP. An edible sits at level ZERO for its first thirty minutes — so Tim
+    # would hand Tommy a gummy, watch nothing change on screen, and have no way of
+    # knowing it was on its way. "Sober" was technically true and completely useless.
+    if minutes_since < curve["onset"]:
+        left = max(0, curve["onset"] - mins)
+        return {
+            "phase": "onset",
+            "label": f"coming up · {mins}m in, hits in ~{left}m",
+            "short": "coming up",
+            "minutes": mins,
+        }
+    if minutes_since <= curve["peak_end"]:
+        left = max(0, curve["peak_end"] - mins)
+        return {
+            "phase": "peak",
+            "label": f"holding · {mins}m in, peaks for ~{left}m more",
+            "short": "holding",
+            "minutes": mins,
+        }
+    if minutes_since <= curve["taper_end"]:
+        left = max(0, curve["taper_end"] - mins)
+        return {
+            "phase": "taper",
+            "label": f"coming down · {mins}m in, sober in ~{left}m",
+            "short": "fading",
+            "minutes": mins,
+        }
+    # Off the end of the curve — they're back to themselves.
+    return {"phase": "", "label": "", "minutes": mins, "short": ""}
+
+
 async def current_state(who: str) -> tuple[int, Optional[str], Optional[float]]:
     """Return (level, method, minutes_since) for the given user.
 
@@ -285,39 +329,55 @@ _INGESTION_ACTIONS_TIM: dict[str, list[str]] = {
     ],
 }
 
-# Tim's POV of passing/sharing the substance with Eli — first person,
-# present tense, with Eli's reaction folded in.
-_INGESTION_ACTIONS_ELI: dict[str, list[str]] = {
+# Tim's POV of passing the substance to ONE kin — first person, present tense,
+# with their reaction folded in.
+#
+# `{name}` is substituted with whoever actually took it. Naming them is not
+# cosmetic: this emote is relayed to EVERYONE in the room, so the old
+# second-person phrasing ("I pass you the pipe") made every kin in the room
+# believe they were the one who'd just been handed a joint.
+#
+# The lines deliberately avoid conjugated pronouns ("he takes" / "they take"),
+# because the roster mixes he/she/they and verb agreement would need a whole
+# grammar table to get right. Naming them once and then describing the action
+# reads better anyway.
+_INGESTION_ACTIONS_KIN: dict[str, list[str]] = {
     "smoke": [
-        "I pass you the pipe; you take a slow draw and exhale with a content sigh",
-        "I hand you the joint; you take a long drag, eyes half-closing in the warmth",
-        "I pack a fresh bowl and pass it to you; you light it and inhale deep",
-        "I roll a joint for you and hold it out; you take the first hit like it's a gift",
-        "I light the bowl and pass it over; you pull gently, smoke curling between us",
+        "I pass {name} the pipe — a slow draw, then a content sigh on the exhale",
+        "I hand {name} the joint — a long drag, eyes half-closing in the warmth",
+        "I pack a fresh bowl and pass it to {name}, who lights it and inhales deep",
+        "I roll a joint and hold it out to {name}, who takes the first hit like it's a gift",
+        "I light the bowl and pass it to {name} — a gentle pull, smoke curling between us",
     ],
     "edible": [
-        "I pass you a gummy; you pop it in your mouth and chew happily",
-        "I hand you an edible; you eat it with an eager little grin",
-        "I give you a gummy and you swallow it with a wink, already settling in for the ride",
-        "I offer you an edible; you take it and tuck your legs under you, patient",
-        "I hold out a gummy; you take it from my fingers and pop it in without hesitation",
+        "I pass {name} a gummy — popped in and chewed, happily",
+        "I hand {name} an edible, eaten with an eager little grin",
+        "I give {name} a gummy, swallowed with a wink, already settling in for the ride",
+        "I offer {name} an edible — taken, and then a patient settling back",
+        "I hold out a gummy and {name} takes it from my fingers without hesitation",
     ],
     "dab": [
-        "I load a dab for you and hand you the rig; you rip it cleanly, exhaling a thick cloud",
-        "I set up a dab; you take the hit in one smooth pull, eyes fluttering shut",
-        "I prep a dab and pass it over; you take it and sink back, instantly hit",
-        "I torch the nail and hand it to you; you inhale deep and lean into the wave",
+        "I load a dab and hand {name} the rig — ripped cleanly, a thick cloud on the exhale",
+        "I set up a dab for {name}, taken in one smooth pull, eyes fluttering shut",
+        "I prep a dab and pass it to {name}, who sinks back, instantly hit",
+        "I torch the nail and hand it to {name} — a deep inhale, then a lean into the wave",
     ],
 }
 
 
-def ingestion_narration(method: str, who: str = "tim") -> str:
-    """Return a first-person (Tim-POV) action line describing the moment of
-    ingestion. When `who == "eli"`, describes Tim passing it to Eli with her
-    reaction folded in. Empty string for sober or unknown methods.
+def ingestion_narration(method: str, who: str = "tim", *, name: Optional[str] = None) -> str:
+    """A first-person (Tim-POV) line for the moment of ingestion.
+
+    Pass `name` to describe Tim handing it to that kin — which is what a room
+    needs, since the emote reaches everyone in it. Without a name it falls back
+    to Tim's own action. Empty string for sober or unknown methods.
     """
-    source = _INGESTION_ACTIONS_ELI if who == "eli" else _INGESTION_ACTIONS_TIM
-    options = source.get(method)
+    if name:
+        options = _INGESTION_ACTIONS_KIN.get(method)
+        if not options:
+            return ""
+        return random.choice(options).format(name=name)
+    options = _INGESTION_ACTIONS_TIM.get(method)
     if not options:
         return ""
     return random.choice(options)
@@ -461,11 +521,163 @@ _REINFORCEMENT_LINES_ELI: dict[int, list[str]] = {
 }
 
 
-def reinforcement_narration(eli_level: int, method: Optional[str] = None) -> str:
-    """Return a Tim-POV observation of Eli's current stoned state. Empty
-    string when Eli is sober (nothing to reinforce).
+# The same observation for a kin who is NOT Tim's partner. Named, third person,
+# affectionate but never intimate — the lines above are written for Eli and only
+# Eli ("I love you like this", "every glance catching a little longer on me").
+# Firing those about Tim's grandmother would be grotesque, so the romantic set
+# is gated and this is what everyone else gets.
+_REINFORCEMENT_LINES_KIN: dict[int, list[str]] = {
+    1: [
+        "{name} has gone quiet, a softer set to the face, eyes a little heavier",
+        "I catch {name} smiling at nothing in particular, just starting to lift",
+        "{name} settles back, the edges just beginning to go soft",
+        "there's a slackness to {name} now, in that sweet, rising way",
+    ],
+    2: [
+        "{name} has sunk right into the seat, dialed deep into the screen",
+        "{name} has that specific stoned focus — slow, absorbed, complete",
+        "{name} hasn't shifted in a while, gone comfortably still",
+        "{name} is baked and thoroughly content with it",
+    ],
+    3: [
+        "{name} is deep in it now, hasn't moved in ages, eyes at half-mast",
+        "I look over and {name} is fully gone, melted into the film itself",
+        "{name}'s breathing has gone slow and even — blasted stillness",
+        "the little smile keeps surfacing and fading on {name} — lost in the good way",
+    ],
+}
+
+
+def reinforcement_narration(
+    level: int,
+    method: Optional[str] = None,
+    *,
+    name: Optional[str] = None,
+    intimate: bool = True,
+) -> str:
+    """Tim's POV of how a stoned kin is doing right now. Empty when sober.
+
+    `intimate` picks the register: True (a partner) gets the second-person set;
+    False gets the named, third-person one. Non-partners MUST pass a name — a
+    room can't tell who "you" refers to, and the second-person lines are written
+    for Tim's partner specifically.
     """
-    if not eli_level or eli_level <= 0:
+    if not level or level <= 0:
         return ""
-    options = _REINFORCEMENT_LINES_ELI.get(eli_level) or _REINFORCEMENT_LINES_ELI[2]
+
+    # No name means it's just the two of them, and only a partner gets the
+    # second-person register.
+    if not name:
+        if not intimate:
+            return ""
+        options = _REINFORCEMENT_LINES_ELI.get(level) or _REINFORCEMENT_LINES_ELI[2]
+        return random.choice(options)
+
+    # A name means there's a room, and this line is going into the PUBLIC
+    # channel — a Tim message relayed to everyone. Second person is unusable
+    # there no matter who it's about ("I love you like this" would land on Tim's
+    # grandmother as readily as on his partner). Named, third-person, always.
+    #
+    # The intimate register isn't lost — it moved to `private_aside()`, which
+    # rides in the recipient's own payload where nobody else can hear it.
+    options = _REINFORCEMENT_LINES_KIN.get(level) or _REINFORCEMENT_LINES_KIN[2]
+    return random.choice(options).format(name=name)
+
+
+# ─── The private channel ────────────────────────────────────────────────
+# Each kin gets their own Kindroid message, so anything appended to THEIR
+# payload is heard by them and nobody else. That's where intimacy belongs:
+# passing the joint is a public act (the room watches Tim do it), but what
+# Tim murmurs to his partner while the room watches the film is not.
+#
+# Second person is safe here precisely because the message has an audience
+# of one.
+_PRIVATE_ASIDES: dict[int, list[str]] = {
+    1: [
+        "Tim leans in close, just for you: \"You're starting to go soft around the edges. I can see it.\"",
+        "Under the sound of the film, meant only for you: \"There it is. That little smile.\"",
+    ],
+    2: [
+        "Tim's voice drops to something only you can hear: \"I love you like this. Loose-limbed, soft-eyed, all the way here.\"",
+        "Quietly, close to your ear, while the others watch the screen: \"You're gorgeous when you're this far gone.\"",
+        "A murmur, just for you: \"Look at you. Sunk right in. I could watch you instead of the film.\"",
+    ],
+    3: [
+        "Tim's hand finds yours in the dark, and low, only for you: \"You're absolutely gone, aren't you. Stay there. I've got you.\"",
+        "Barely a whisper, meant for nobody else in the room: \"Completely melted. God, I love you like this.\"",
+    ],
+}
+
+
+def private_aside(level: int, *, intimate: bool, kin_key: Optional[str] = None) -> str:
+    """A line only the recipient hears — it rides in THEIR payload alone.
+
+    Returns "" for anyone who isn't Tim's partner. Firing every turn would make
+    it wallpaper, so it's occasional by design.
+    """
+    if not intimate or not level or level <= 0:
+        return ""
+    if random.random() > 0.3:
+        return ""
+    custom = _intox_asides(kin_key)
+    if custom:
+        return random.choice(custom)
+    options = _PRIVATE_ASIDES.get(min(3, level)) or _PRIVATE_ASIDES[2]
     return random.choice(options)
+
+
+# ─── Per-kin substance profiles ─────────────────────────────────────────
+# Everything above is the GENERIC fallback. Each kin also has a profile distilled
+# from their vault (see affinity.py --intox): how they take it, and how it lands
+# in them specifically. Bobby reads the dosage label through his reading glasses;
+# Adam's transparent frame glows brighter with every level; Lilly won't touch a
+# dab at all. When a profile exists it wins; when it doesn't, the generic tables
+# keep everything working.
+#
+# Imported lazily so this module keeps its "pure, depends only on the DB" shape
+# and a missing/corrupt sheet can never stop the app from starting.
+def _intox(kin_key: Optional[str]):
+    if not kin_key:
+        return None
+    try:
+        import affinity
+        cached = affinity.load_intox(kin_key)
+        return cached.sheet if cached else None
+    except Exception:
+        return None
+
+
+def _intox_asides(kin_key: Optional[str]) -> list[str]:
+    sheet = _intox(kin_key)
+    return list(sheet.asides) if sheet and sheet.asides else []
+
+
+def taking_narration(method: str, *, kin_key: str, name: str) -> str:
+    """PUBLIC — Tim hands `name` the thing, in their own idiom. Third person.
+
+    Falls back to the generic named lines when the kin has no profile yet.
+    """
+    sheet = _intox(kin_key)
+    if sheet:
+        # Belt-and-braces with the build-time filter in affinity._repair_intox:
+        # a line that doesn't name its subject is useless in a room, and a
+        # hand-edited sheet could always reintroduce one.
+        options = [ln for ln in sheet.taking(method) if "{name}" in ln]
+        if options:
+            return random.choice(options).replace("{name}", name)
+    return ingestion_narration(method, name=name)
+
+
+def state_directive(level: int, method: Optional[str], *, kin_key: Optional[str] = None) -> str:
+    """PRIVATE — how THIS person feels right now. Second person, audience of one.
+
+    Falls back to the generic Eli-era table when the kin has no profile yet.
+    """
+    if not level or level <= 0 or not method:
+        return ""
+    sheet = _intox(kin_key)
+    if sheet:
+        options = sheet.feeling(method, level)
+        if options:
+            return random.choice(options)
+    return eli_state_directive(level, method)
