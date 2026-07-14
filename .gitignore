@@ -10,3 +10,7 @@ __pycache__/
 venv/
 .DS_Store
 
+# Raw generator output. The finished, keyed, fitted art lives in static/mood/ — this is the
+# 46MB of magenta-backgrounded source renders it was made from. Keep them if you like, but
+# not in the repo.
+temp/

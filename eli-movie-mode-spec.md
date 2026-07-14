@@ -477,7 +477,7 @@ services:
 
 ```
 PLEX_URL=https://pixel-direct.usbx.me:14975
-PLEX_TOKEN=xD2UDtVcbcCvB-qHjR5f
+PLEX_TOKEN=  # see .env — never commit the real token
 GEMINI_API_KEY=
 KINDROID_API_KEY=
 KINDROID_AI_ID=
