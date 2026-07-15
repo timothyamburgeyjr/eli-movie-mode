@@ -4519,6 +4519,41 @@ def _discard_draft(draft_id: str, *, keep_frame: Optional[str]) -> None:
             pass
 
 
+def _project_targets(targets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The client's view of a moment's targets. `note` is deliberately dropped —
+    the frontend never sees it; only the sentence writer reads it, server-side."""
+    return [
+        {
+            "key": t["key"],
+            "label": t["label"],
+            "facet": t["facet"],
+            "emotions": t["emotions"],
+        }
+        for t in targets
+    ]
+
+
+def _project_moments(draft: dict[str, Any], clip_seconds: int) -> list[dict[str, Any]]:
+    """The client's view of the strip. Shared by `/draft` and `/refine` so the two
+    can never silently drift into returning different shapes for the same data."""
+    return [
+        {
+            "key": m["key"],
+            "offset_ms": m["offset_ms"],
+            "caption": m["caption"],
+            # The fuller description, shown under the caption. Six frames from a dim
+            # scene, on a phone, in the dark, are six identical rectangles — the
+            # words are what make the strip usable, not the picture.
+            "description": m["why"],
+            "frame_url": m.get("frame_url"),
+            # Seconds BEFORE the tap — what the strip is actually labelled with.
+            "seconds_ago": round(clip_seconds - m["offset_ms"] / 1000.0, 1),
+            "targets": _project_targets(m["targets"]),
+        }
+        for m in draft["moments"]
+    ]
+
+
 @app.post("/api/reaction/draft")
 async def api_reaction_draft(_auth: dict = Depends(require_auth)):
     """Open the drawer: pull ONE clip, index it, cut the strip from it.
@@ -4620,30 +4655,7 @@ async def api_reaction_draft(_auth: dict = Depends(require_auth)):
         "draft_id": draft_id,
         "clip_seconds": lookback,
         "mood": draft["mood"],
-        "moments": [
-            {
-                "key": m["key"],
-                "offset_ms": m["offset_ms"],
-                "caption": m["caption"],
-                # The fuller description, shown under the caption. Six frames from a
-                # dim scene, on a phone, in the dark, are six identical rectangles —
-                # the words are what make the strip usable, not the picture.
-                "description": m["why"],
-                "frame_url": m.get("frame_url"),
-                # Seconds BEFORE the tap — what the strip is actually labelled with.
-                "seconds_ago": round(lookback - m["offset_ms"] / 1000.0, 1),
-                "targets": [
-                    {
-                        "key": t["key"],
-                        "label": t["label"],
-                        "facet": t["facet"],
-                        "emotions": t["emotions"],
-                    }
-                    for t in m["targets"]
-                ],
-            }
-            for m in draft["moments"]
-        ],
+        "moments": _project_moments(draft, lookback),
         "reads": draft["reads"],
         "emotions": _emotion_catalogue(),
     })
@@ -4689,6 +4701,10 @@ async def api_reaction_sentences(request: Request, _auth: dict = Depends(require
     if emotion_key not in emotions.BY_KEY:
         raise HTTPException(status_code=400, detail="Unknown emotion")
 
+    # Optional: the refine box under the sentence list. The initial (no-hint) call
+    # from the emotion tap passes nothing and is unaffected.
+    hint = (body.get("hint") or "").strip()[:120]
+
     try:
         result = await gemini_brain.reaction_sentences(
             scene_description=draft["scene_description"],
@@ -4699,6 +4715,7 @@ async def api_reaction_sentences(request: Request, _auth: dict = Depends(require
             target_facet=target["facet"],
             emotion_key=emotion_key,
             movie_title=draft["movie_title"],
+            hint=hint,
         )
     except GeminiError as e:
         log.exception("reaction sentences failed")
@@ -4706,6 +4723,184 @@ async def api_reaction_sentences(request: Request, _auth: dict = Depends(require
 
     await _broadcast_cost(draft["session_id"])
     return JSONResponse({"options": result["options"]})
+
+
+@app.post("/api/reaction/refine")
+async def api_reaction_refine(request: Request, _auth: dict = Depends(require_auth)):
+    """Regenerate ONE step of the drawer from a typed nudge.
+
+    Tim watches high and can't reliably type a whole reaction. Each step already
+    shows tappable options; when none fit, this lets him type a few words and get a
+    fresh tappable list for THAT step — he stays in tap-land. Three of the four
+    stages are cheap text calls against the scene we already read; `moment` re-reads
+    the ALREADY-DOWNLOADED clip (no seedbox re-pull).
+
+    On any regeneration that yields nothing usable we raise 502 BEFORE mutating the
+    stored draft, so a failed refine leaves the current options intact on screen.
+    """
+    body = await request.json()
+    draft_id = (body.get("draft_id") or "").strip()
+    draft = _REACTION_DRAFTS.get(draft_id)
+    if not draft:
+        raise HTTPException(status_code=410, detail="That draft expired — reopen the drawer")
+
+    hint = (body.get("hint") or "").strip()[:120]
+    if not hint:
+        raise HTTPException(status_code=400, detail="Say what to change")
+    stage = (body.get("stage") or "").strip()
+
+    if stage == "moment":
+        return await _refine_moment(draft, hint)
+    if stage == "targets":
+        return await _refine_targets(draft, body, hint)
+    if stage == "emotions":
+        return await _refine_emotions(draft, body, hint)
+    raise HTTPException(status_code=400, detail="Unknown refine stage")
+
+
+async def _refine_moment(draft: dict[str, Any], hint: str) -> JSONResponse:
+    """Re-index the cached clip steered by the nudge, re-cut its thumbnails, and swap
+    the strip in place. The one expensive (video) refine — but the clip is already on
+    disk, so it skips the ~6s seedbox pull and pays only Gemini's indexing time."""
+    clip_path = Path(draft["clip_path"])
+    if not clip_path.exists():
+        raise HTTPException(status_code=410, detail="That clip is gone — reopen the drawer")
+
+    settings_map = await db.get_all_settings()
+    media_res = (settings_map.get("media_resolution") or "low").lower()
+
+    try:
+        new = await gemini_brain.reaction_draft(
+            clip_path,
+            clip_seconds=draft["clip_seconds"],
+            movie_title=draft.get("movie_title") or "",
+            media_resolution=media_res,
+            hint=hint,
+        )
+    except GeminiError as e:
+        log.exception("reaction moment refine failed")
+        raise HTTPException(status_code=502, detail=f"Couldn't re-read the scene: {e}")
+
+    if not new["moments"]:
+        raise HTTPException(status_code=502, detail="Nothing reactable matched that — try again")
+
+    # Re-cut thumbnails from the SAME cached clip (61x faster than re-seeking the
+    # remote stream, and it hits the seedbox zero further times).
+    frames_dir = Path(settings.frames_dir)
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    results = await asyncio.gather(
+        *(
+            extract_frame(str(clip_path), m["offset_ms"] / 1000.0, out_dir=frames_dir)
+            for m in new["moments"]
+        ),
+        return_exceptions=True,
+    )
+    for m, res in zip(new["moments"], results):
+        if isinstance(res, Exception):
+            log.warning("refine thumbnail failed for %s: %s", m["key"], res)
+            m["frame_path"] = None
+            m["frame_url"] = None
+        else:
+            m["frame_path"] = str(res)
+            m["frame_url"] = f"/static/frames/{Path(res).name}"
+
+    # Bin the superseded thumbnails, KEEP the clip (the next refine needs it).
+    new_frames = {m.get("frame_path") for m in new["moments"]}
+    for m in draft.get("moments", []):
+        fp = m.get("frame_path")
+        if fp and fp not in new_frames:
+            try:
+                Path(fp).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    # draft_id / clip_path / playhead_sec / session_id all preserved; the scene the
+    # room will read is refreshed to match the new strip. Mood is NOT re-broadcast —
+    # the film didn't change, and re-glowing on a refine reads as a flicker.
+    draft["moments"] = new["moments"]
+    draft["scene_description"] = new["scene_description"]
+    draft["reads"] = new["reads"]
+
+    await _broadcast_cost(draft["session_id"])
+    return JSONResponse({"moments": _project_moments(draft, draft["clip_seconds"])})
+
+
+async def _refine_targets(draft: dict[str, Any], body: dict[str, Any], hint: str) -> JSONResponse:
+    """Re-list the things-to-react-to for the chosen beat. Serves both the category
+    step (an index over these) and the target step."""
+    moment = next((m for m in draft["moments"] if m["key"] == body.get("moment")), None)
+    if not moment:
+        raise HTTPException(status_code=400, detail="Unknown moment")
+
+    existing = [t["label"] for t in moment["targets"] if not t["key"].endswith("tall")]
+    try:
+        result = await gemini_brain.reaction_targets(
+            scene_description=draft["scene_description"],
+            moment_caption=moment["caption"],
+            moment_why=moment["why"],
+            hint=hint,
+            movie_title=draft.get("movie_title") or "",
+            existing_labels=existing,
+        )
+    except GeminiError as e:
+        log.exception("reaction targets refine failed")
+        raise HTTPException(status_code=502, detail=f"Couldn't re-list that: {e}")
+
+    if not result["targets"]:
+        raise HTTPException(status_code=502, detail="Nothing matched that — try again")
+
+    # Stamp keys scoped to THIS moment, then re-append the catch-all so he's never
+    # stranded when none of the named targets is the thing he meant.
+    rebuilt = []
+    for t in result["targets"]:
+        rebuilt.append({
+            "key": f"{moment['key']}t{len(rebuilt)}",
+            "label": t["label"],
+            "facet": t["facet"],
+            "note": t["note"],
+            "emotions": t["emotions"],
+        })
+    rebuilt.append({
+        "key": f"{moment['key']}tall",
+        "label": "just… all of it",
+        "facet": "story",
+        "note": "The whole beat, not one element of it.",
+        "emotions": [],
+    })
+    moment["targets"] = rebuilt
+
+    await _broadcast_cost(draft["session_id"])
+    return JSONResponse({"targets": _project_targets(moment["targets"])})
+
+
+async def _refine_emotions(draft: dict[str, Any], body: dict[str, Any], hint: str) -> JSONResponse:
+    """Re-rank the fixed emotion thesaurus for the chosen target."""
+    moment = next((m for m in draft["moments"] if m["key"] == body.get("moment")), None)
+    if not moment:
+        raise HTTPException(status_code=400, detail="Unknown moment")
+    target = next((t for t in moment["targets"] if t["key"] == body.get("target")), None)
+    if not target:
+        raise HTTPException(status_code=400, detail="Unknown target")
+
+    try:
+        result = await gemini_brain.reaction_emotions(
+            scene_description=draft["scene_description"],
+            moment_caption=moment["caption"],
+            target_label=target["label"],
+            target_note=target["note"],
+            target_facet=target["facet"],
+            hint=hint,
+        )
+    except GeminiError as e:
+        log.exception("reaction emotions refine failed")
+        raise HTTPException(status_code=502, detail=f"Couldn't re-rank those: {e}")
+
+    if not result["emotions"]:
+        raise HTTPException(status_code=502, detail="Nothing matched that — try again")
+
+    target["emotions"] = result["emotions"]
+    await _broadcast_cost(draft["session_id"])
+    return JSONResponse({"emotions": result["emotions"]})
 
 
 @app.post("/api/reaction")

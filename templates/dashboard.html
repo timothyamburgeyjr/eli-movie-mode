@@ -1480,6 +1480,32 @@
         }
         .own-send:disabled { opacity: 0.4; cursor: not-allowed; }
 
+        /* The refine box — one per step, under the options. A few typed words
+           regenerate that step's tappable list, so typing stays tiny. Sits BELOW
+           everything, separated by a rule, so it never reads as one of the picks. */
+        .refine-box { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+        .refine-hint {
+            font-size: 0.6rem; color: var(--text-muted); font-weight: 600;
+            letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 8px;
+        }
+        .refine-wrap { display: flex; gap: 8px; align-items: stretch; }
+        .refine-input {
+            flex: 1; min-width: 0; background: var(--bg-elevated);
+            border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+            color: var(--text-primary); font-family: inherit; font-size: 0.84rem;
+            outline: none; line-height: 1.4;
+        }
+        .refine-input:focus { border-color: var(--accent); }
+        .refine-input:disabled { opacity: 0.5; }
+        .refine-send {
+            flex-shrink: 0; width: 44px; border-radius: 10px; background: var(--accent);
+            border: none; color: #fff; font-size: 1.1rem; font-weight: 700; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .refine-send:disabled { opacity: 0.5; cursor: not-allowed; }
+        .refine-err { font-size: 0.76rem; color: var(--danger); margin-top: 7px; }
+        .refine-err:empty { display: none; }
+
         /* The reaction, in the chat. It carries the FRAME it was anchored to —
            the first time a reaction has ever had a picture attached, and the
            direct answer to "I never know what I'm reacting to". */
@@ -6788,6 +6814,62 @@
         return a;
     }
 
+    // ─── The refine box ──────────────────────────────────────────────
+    // Typing a whole reaction while high is exactly what this drawer exists to
+    // avoid — so EVERY step gets a tiny nudge box under its options. A few words
+    // ("the camera not the actor", "more sarcastic", "the earlier beat") regenerate
+    // THAT step's tappable list. He types little; he taps the result. Each submit is
+    // one Gemini call — cheap text for target/emotion/sentence, the one video call
+    // for the moment strip (but off the already-cached clip, so no seedbox re-pull).
+    async function refineFetch(payload) {
+        const res = await fetch('/api/reaction/refine', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            throw new Error(j.detail || 'Refine failed.');
+        }
+        return res.json();
+    }
+
+    // `onSubmit(hint)` must fetch, mutate the relevant RX list IN PLACE, then call
+    // renderDrawer() — and it must only overwrite RX AFTER a 2xx, so a failed refine
+    // leaves the current options on screen with the inline error, never a blank step.
+    function refineBox(placeholder, onSubmit) {
+        const box = el('div', { class: 'refine-box' });
+        box.appendChild(el('div', { class: 'refine-hint', text: 'none of these? nudge me' }));
+        const row = el('div', { class: 'refine-wrap' });
+        const input = el('input', { class: 'refine-input', type: 'text', placeholder });
+        const btn = el('button', { class: 'refine-send', type: 'button', text: '↻' });
+        const err = el('div', { class: 'refine-err' });
+        const run = async () => {
+            const hint = input.value.trim();
+            if (!hint) return;
+            input.disabled = btn.disabled = true;   // no double-charge / racing renders
+            btn.textContent = '';
+            btn.appendChild(el('span', { class: 'dl-dot' }));
+            err.textContent = '';
+            try {
+                await onSubmit(hint);   // success path re-renders the whole step
+            } catch (e) {
+                input.disabled = btn.disabled = false;
+                btn.textContent = '↻';
+                err.textContent = e.message || 'Could not refine — options unchanged.';
+            }
+        };
+        btn.onclick = run;
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); run(); }
+        });
+        row.appendChild(input);
+        row.appendChild(btn);
+        box.appendChild(row);
+        box.appendChild(err);
+        return box;
+    }
+
     // ─── STEP 1: the moment ──────────────────────────────────────────
     // Gemini picks the beats. Fixed offsets (-6s, -14s, -22s…) would land on a
     // doorknob half the time; these are the moments actually worth reacting to.
@@ -6818,6 +6900,14 @@
             strip.appendChild(card);
         }
         b.appendChild(strip);
+
+        // The one video refine — re-reads the cached clip (no seedbox re-pull) to
+        // surface different beats with matching thumbnails. Slower than the others.
+        b.appendChild(refineBox('the earlier beat · not the actor', async (hint) => {
+            const j = await refineFetch({ draft_id: RX.draft.draft_id, stage: 'moment', hint });
+            RX.draft.moments = j.moments;
+            renderDrawer();
+        }));
     }
 
     // ─── STEP 2: the category ────────────────────────────────────────
@@ -6851,6 +6941,16 @@
             p.onclick = () => { RX.facet = '*'; RX.target = all; renderDrawer(); };
             b.appendChild(p);
         }
+
+        // Regenerate the beat's targets from a nudge. Category is just an index over
+        // them, so the same 'targets' refine refreshes both this step and the next.
+        b.appendChild(refineBox('more about the camera · the sound', async (hint) => {
+            const j = await refineFetch({
+                draft_id: RX.draft.draft_id, stage: 'targets', moment: RX.moment.key, hint,
+            });
+            RX.moment.targets = j.targets;   // RX.moment is a live ref into RX.draft.moments
+            renderDrawer();
+        }));
     }
 
     // ─── STEP 3: the target ──────────────────────────────────────────
@@ -6866,6 +6966,19 @@
             picks.appendChild(p);
         }
         b.appendChild(picks);
+
+        b.appendChild(refineBox('the lighting · what he said · the score', async (hint) => {
+            const j = await refineFetch({
+                draft_id: RX.draft.draft_id, stage: 'targets', moment: RX.moment.key, hint,
+            });
+            RX.moment.targets = j.targets;
+            // If the nudge steered the set away from the facet he was browsing, fall
+            // back to the category step rather than showing an empty target list.
+            if (RX.facet !== '*' && !RX.moment.targets.some(t => t.facet === RX.facet)) {
+                RX.facet = null;
+            }
+            renderDrawer();
+        }));
     }
 
     // ─── STEP 4: the emoji ───────────────────────────────────────────
@@ -6925,15 +7038,27 @@
                 b.appendChild(grid(g.emotions.map(e => ({ ...e, color: g.color }))));
             }
         }
+
+        // Re-rank the "or, more precisely" list from a nudge. The generics floor and
+        // the "all emotions" browser are untouched — only RX.target.emotions changes.
+        b.appendChild(refineBox('more sarcastic · less intense', async (hint) => {
+            const j = await refineFetch({
+                draft_id: RX.draft.draft_id, stage: 'emotions',
+                moment: RX.moment.key, target: RX.target.key, hint,
+            });
+            RX.target.emotions = j.emotions;
+            RX.showAllEmo = false;
+            renderDrawer();
+        }));
     }
 
     // ─── STEP 5: the sentence ────────────────────────────────────────
-    async function loadSentences() {
+    async function loadSentences(hint = '') {
         RX.options = null;
         $('drawerBody').innerHTML = '';
         $('drawerBody').appendChild(el('div', { class: 'dl-step active' }, [
             el('span', { class: 'dl-dot' }),
-            el('span', { text: 'writing it…' }),
+            el('span', { text: hint ? 'trying another angle…' : 'writing it…' }),
         ]));
         try {
             const res = await fetch('/api/reaction/sentences', {
@@ -6944,6 +7069,7 @@
                     moment: RX.moment.key,
                     target: RX.target.key,
                     emotion: RX.emotion,
+                    hint,
                 }),
             });
             if (!res.ok) {
@@ -6980,6 +7106,11 @@
         b.appendChild(picks);
 
         b.appendChild(aimRow());
+
+        // Regenerate the lines from a nudge — distinct from "✎ my own words" above,
+        // which sends VERBATIM. This one bends the whole set toward the angle he
+        // asks for. loadSentences() re-renders this step (or its own error screen).
+        b.appendChild(refineBox('darker · funnier · shorter', (hint) => loadSentences(hint)));
     }
 
     function renderOwnWords(b) {

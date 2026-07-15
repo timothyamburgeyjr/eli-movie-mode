@@ -337,6 +337,56 @@ out, the sentence is about the score dropping out — not a generic "wow, intens
 Present tense. 1-2 sentences each, under 220 characters. No emoji. No stage directions.
 Do not have him address anyone by name."""
 
+# ─── Refine: regenerate ONE step of the drawer from a typed nudge ──────
+#
+# The whole drawer is built from one video call on open, so steps run offline.
+# But the pre-built list can miss the thing he reached for, and typing the whole
+# reaction (while high) is exactly what this feature exists to avoid. So each step
+# gets a tiny "nudge" box: a few words that regenerate THAT step's tappable list.
+# These two prompts back the target and emotion regenerations; the moment and
+# sentence steps reuse `reaction_draft`/`reaction_sentences` with a `hint` instead.
+
+REACTION_TARGETS_SYSTEM_PROMPT = """\
+You are re-listing the THINGS about one beat of a film that a viewer might react to.
+He has already picked the beat. He has told you, in a few words, what he actually
+wants to react to — the list he was first shown didn't have it.
+
+── THE TWO RULES THAT MATTER ──
+
+1. HONOUR THE NUDGE. Lead with targets that match what he asked for. If he says
+   "the camera, not the actor", the list is cinematography-first. Still SPREAD across
+   at least three facets so he isn't boxed in, but his ask comes first.
+
+2. BE CONCRETE, NOT CATEGORICAL. A target is a THING ON SCREEN, not a topic. Name
+   what actually happens, in plain spoken words, so he recognises it instantly.
+
+      BAD: "Dialogue delivery"     GOOD: "the flat, bored way he signs without looking up"
+      BAD: "Cinematography"        GOOD: "the way the camera drifts back as she turns"
+      BAD: "Background music"      GOOD: "the score dropping out two beats before he speaks"
+
+── THE FACETS ──
+{facets}
+
+── EMOTIONS ──
+For every target, rank the emotion KEYS a viewer might plausibly feel about THAT
+target — keys only, from the vocabulary given, most likely first, 4-6 of them. Rank
+against the TARGET, not just the scene: the craft of a horror beat is admiration, not
+fear.
+
+Return 3-6 targets. Do not repeat any of the labels he was already shown. Plain,
+spoken English throughout — no film-school register."""
+
+REACTION_EMOTIONS_SYSTEM_PROMPT = """\
+A viewer has picked one specific thing in a film to react to, and told you in a few
+words how he wants it framed emotionally — the feelings he was first offered weren't
+quite it.
+
+Return the emotion KEYS that best match what he asked for, ranked most-plausible
+first. Keys ONLY, from the vocabulary given — no labels, no free text, no keys that
+aren't in the list. Honour his nudge: if he says "more sarcastic" lead with the dry,
+amused, unimpressed keys; if he says "less intense" pull back from the extremes.
+Return 4-8 keys."""
+
 # ─── The quiet stretch ────────────────────────────────────────────────
 #
 # THEY WERE NOT AWAY. That is the whole prompt, really.
@@ -1784,6 +1834,7 @@ Return ONLY the JSON object, nothing else.
         movie_context: str = "",
         session_history: str = "",
         media_resolution: str = "low",
+        hint: str = "",
     ) -> dict[str, Any]:
         """ONE call. One clip. Everything the drawer needs.
 
@@ -1947,6 +1998,16 @@ Return ONLY the JSON object, nothing else.
                 "\nEmotion vocabulary — return KEYS from this list only:\n"
                 + emotions.prompt_vocabulary()
             )
+            # A refine: the strip he was shown missed the thing he reached for.
+            # Steer the re-index toward it — a different beat, a different framing,
+            # whatever he named — rather than reshuffling the same moments.
+            if hint.strip():
+                parts.append(
+                    "\nThe viewer asked to steer the beats: "
+                    + hint.strip()[:120]
+                    + "\nHonour it — re-pick and re-frame the moments accordingly, "
+                    "and lead with what he pointed at."
+                )
             user_prompt = "\n".join(parts)
 
             config = types.GenerateContentConfig(
@@ -2066,6 +2127,7 @@ Return ONLY the JSON object, nothing else.
         movie_title: str = "",
         subject: str = "Tim",
         n: int = 5,
+        hint: str = "",
     ) -> dict[str, Any]:
         """The one mid-wizard call. Text only — the clip was already read by
         `reaction_draft`, so this is cheap (~$0.0003) and fast.
@@ -2124,6 +2186,10 @@ Return ONLY the JSON object, nothing else.
             f"\nWrite {n} ways {subject} might say this. Vary the manner — big and "
             f"physical, small and private, out loud, almost nothing."
         )
+        # A refine: the first batch wasn't the angle he wanted. Bend the whole set
+        # toward what he asked for — don't just tweak one line.
+        if hint.strip():
+            lines.append(f"\nHe wants a different angle on it: {hint.strip()[:120]}")
 
         config = types.GenerateContentConfig(
             system_instruction=REACTION_SENTENCES_SYSTEM_PROMPT.format(n=n, subject=subject),
@@ -2169,6 +2235,196 @@ Return ONLY the JSON object, nothing else.
 
         return {
             "options": options,
+            "latency_ms": int((perf_counter() - start) * 1000),
+            "usage": usage,
+        }
+
+    # ─── Reaction drawer: regenerate the TARGETS for one beat ───────
+    async def reaction_targets(
+        self,
+        *,
+        scene_description: str,
+        moment_caption: str,
+        moment_why: str,
+        hint: str,
+        movie_title: str = "",
+        existing_labels: Optional[list[str]] = None,
+        n: int = 6,
+    ) -> dict[str, Any]:
+        """Re-list the things-to-react-to for ONE already-picked beat, steered by a
+        typed nudge. Text-only against the scene we already read — cheap and fast,
+        no clip re-read. Backs the refine box on both the category and target steps.
+
+        Returns {targets: [{label, facet, note, emotions:[valid keys]}], latency_ms, usage}.
+        The same shape `reaction_draft` produces per target (minus the assigned key,
+        which the caller stamps), so the drawer can drop it straight in.
+        """
+        self._ensure_client()
+        start = perf_counter()
+
+        # Flat list, named fields, NO enums / length bounds on the nested part — the
+        # same complexity-budget landmine documented on reaction_draft's schema.
+        schema = {
+            "type": "object",
+            "properties": {
+                "targets": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": {"type": "string"},
+                            "facet": {"type": "string", "enum": list(REACTION_FACETS)},
+                            "note": {"type": "string"},
+                            "emotions": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                        "required": ["label", "facet", "note", "emotions"],
+                    },
+                },
+            },
+            "required": ["targets"],
+        }
+
+        lines = []
+        if movie_title:
+            lines.append(f"Movie: {movie_title}")
+        lines.append(f"What's on screen: {scene_description[:900]}")
+        lines.append(f"\nThe beat he picked: {moment_caption}")
+        if moment_why:
+            lines.append(f"  ({moment_why})")
+        lines.append(f"\nWhat he wants to react to: {hint.strip()[:120]}")
+        if existing_labels:
+            shown = "; ".join(l for l in existing_labels if l)[:400]
+            if shown:
+                lines.append(f"\nAlready shown (do NOT repeat these): {shown}")
+        lines.append(
+            "\nEmotion vocabulary — return KEYS from this list only:\n"
+            + emotions.prompt_vocabulary()
+        )
+        lines.append(f"\nReturn {n} targets, his ask first.")
+
+        config = types.GenerateContentConfig(
+            system_instruction=REACTION_TARGETS_SYSTEM_PROMPT.format(facets=_FACET_HINTS),
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=0.85,
+            max_output_tokens=2048,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        )
+        response = await self._call_with_retry(
+            ["\n".join(lines)], config, "reaction_targets", model=self.text_model,
+        )
+        usage = await self._track_call(
+            response, call_type="reaction_targets", model=self.text_model, grounded=False,
+        )
+
+        raw = (response.text or "").strip()
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise GeminiError(f"reaction targets returned non-JSON: {raw[:200]}") from e
+
+        # Validate exactly like the draft loop: bad facets and empty labels dropped,
+        # emotion keys gated through BY_KEY. The caller assigns keys and appends the
+        # `tall` catch-all — this returns only the real, model-named targets.
+        targets = []
+        for t in (parsed.get("targets") or [])[: n + 2]:
+            facet = (t.get("facet") or "").strip()
+            label = (t.get("label") or "").strip()
+            if not label or facet not in REACTION_FACETS:
+                continue
+            keys = [k for k in (t.get("emotions") or []) if k in emotions.BY_KEY][:6]
+            targets.append({
+                "label": label[:90],
+                "facet": facet,
+                "note": (t.get("note") or "").strip()[:180],
+                "emotions": keys,
+            })
+
+        return {
+            "targets": targets,
+            "latency_ms": int((perf_counter() - start) * 1000),
+            "usage": usage,
+        }
+
+    # ─── Reaction drawer: re-rank the EMOTIONS for one target ───────
+    async def reaction_emotions(
+        self,
+        *,
+        scene_description: str,
+        moment_caption: str,
+        target_label: str,
+        target_note: str,
+        target_facet: str,
+        hint: str,
+        n: int = 8,
+    ) -> dict[str, Any]:
+        """Re-rank the fixed emotion thesaurus for ONE target, steered by a typed
+        nudge. Text-only. Returns only KEYS the app actually knows.
+
+        Returns {emotions: [valid keys], latency_ms, usage}.
+        """
+        self._ensure_client()
+        start = perf_counter()
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "emotions": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["emotions"],
+        }
+
+        lines = [
+            f"What's on screen: {scene_description[:600]}",
+            f"\nThe beat: {moment_caption}",
+            f"The thing he's reacting to: {target_label}  [{target_facet}]",
+        ]
+        if target_note:
+            lines.append(f"  ({target_note})")
+        lines.append(f"\nHow he wants it framed: {hint.strip()[:120]}")
+        lines.append(
+            "\nEmotion vocabulary — return KEYS from this list only:\n"
+            + emotions.prompt_vocabulary()
+        )
+        lines.append(f"\nReturn up to {n} keys, best match first.")
+
+        config = types.GenerateContentConfig(
+            system_instruction=REACTION_EMOTIONS_SYSTEM_PROMPT,
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=0.7,
+            max_output_tokens=512,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        )
+        response = await self._call_with_retry(
+            ["\n".join(lines)], config, "reaction_emotions", model=self.text_model,
+        )
+        usage = await self._track_call(
+            response, call_type="reaction_emotions", model=self.text_model, grounded=False,
+        )
+
+        raw = (response.text or "").strip()
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise GeminiError(f"reaction emotions returned non-JSON: {raw[:200]}") from e
+
+        # NEVER trust the model to emit valid keys — gate every one through BY_KEY,
+        # de-duplicating while preserving rank.
+        seen: set[str] = set()
+        keys: list[str] = []
+        for k in (parsed.get("emotions") or []):
+            if k in emotions.BY_KEY and k not in seen:
+                seen.add(k)
+                keys.append(k)
+            if len(keys) >= n:
+                break
+
+        return {
+            "emotions": keys,
             "latency_ms": int((perf_counter() - start) * 1000),
             "usage": usage,
         }
