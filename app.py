@@ -5262,6 +5262,26 @@ def _caption_for(draft: dict, moment_key: str) -> str:
     return (m or {}).get("caption", "")
 
 
+def _reaction_line_with_quote(draft: dict, target: dict, first_person: str) -> str:
+    """Ride the exact spoken words into the narration when a reaction is on a QUOTE.
+
+    A quote target is injected onto its beat as a `writing` target and paired with
+    an entry in `draft["quotes"]` by `target_key`. Match it back and prepend the
+    line + speaker, so the room reacts to WHAT froze him, not just that he froze.
+    Any non-quote target falls straight through to his sentence untouched.
+    """
+    quote = next(
+        (q for q in draft.get("quotes", []) if q.get("target_key") == target.get("key")),
+        None,
+    )
+    line = (quote or {}).get("text", "").strip()
+    if not line:
+        return first_person
+    who = (quote.get("speaker") or "").strip()
+    attribution = f"the line {who} just delivered" if who else "the line just delivered"
+    return f'{first_person} — reacting to {attribution}: "{line}"'
+
+
 def _emotion_catalogue() -> dict[str, Any]:
     """The whole thesaurus, once, so the client can render any key the draft ranks
     and also browse "all emotions" without another round trip."""
@@ -5584,6 +5604,11 @@ async def api_send_reaction(request: Request, _auth: dict = Depends(require_auth
     # `_run_relay` about the guard that briefly, wrongly, rewrote these.)
     aim_at = (body.get("aim_at") or "").strip() or None
 
+    # If he's reacting to a QUOTED line, the kins need the line itself — the same
+    # way a rating fine-tune hands them the exact thing being judged. Without it
+    # they hear "I froze" and have no idea WHICH line froze him.
+    reaction_line = _reaction_line_with_quote(draft, target, first_person)
+
     content = f"{emotion.emoji} {first_person}"
     msg_id = await db.add_message(active["id"], "reaction", content)
     await db.execute(
@@ -5616,7 +5641,7 @@ async def api_send_reaction(request: Request, _auth: dict = Depends(require_auth
     _discard_draft(draft_id, keep_frame=moment.get("frame_path"))
 
     asyncio.create_task(
-        _process_chosen_reaction(active["id"], scene, mood, first_person, aim_at)
+        _process_chosen_reaction(active["id"], scene, mood, reaction_line, aim_at)
     )
     return JSONResponse({"id": msg_id})
 

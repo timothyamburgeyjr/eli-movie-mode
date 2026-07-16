@@ -103,5 +103,30 @@ check("REACTION_DRAFT_SYSTEM_PROMPT demands a target per character",
       or "EACH character" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
 check("...and the story beat", "STORY BEAT" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
 
+print("\n=== QUOTE: reacting to a line ships the exact words to the room ===")
+import app
+_draft = {
+    "quotes": [
+        {"text": "I know it was you, Fredo.", "speaker": "Michael", "target_key": "m1q0"},
+        {"text": "", "speaker": "", "target_key": "m1q1"},  # empty line, should be ignored
+    ]
+}
+# A quote target: the room hears Tim's sentence AND the line + who said it.
+q = app._reaction_line_with_quote(_draft, {"key": "m1q0"}, "I couldn't breathe")
+check("keeps his sentence", q.startswith("I couldn't breathe"), q)
+check("carries the exact line", 'I know it was you, Fredo.' in q, q)
+check("names the speaker", "Michael" in q, q)
+# A quote with no speaker still ships the line, just unattributed.
+q2 = app._reaction_line_with_quote(
+    {"quotes": [{"text": "Run.", "speaker": "", "target_key": "m1q0"}]},
+    {"key": "m1q0"}, "chills")
+check("unattributed line still ships", 'Run.' in q2 and "chills" in q2, q2)
+# A non-quote target (an ordinary facet) falls straight through, untouched.
+plain = app._reaction_line_with_quote(_draft, {"key": "m1t0"}, "that shot floored me")
+check("a non-quote target is untouched", plain == "that shot floored me", plain)
+# An empty quote text is treated as no quote.
+empty = app._reaction_line_with_quote(_draft, {"key": "m1q1"}, "wow")
+check("an empty quote line is ignored", empty == "wow", empty)
+
 print("\n" + ("ALL PASS" if ok else "FAILURES ABOVE"))
 sys.exit(0 if ok else 1)
