@@ -36,6 +36,15 @@ class PlexMonitor:
         self._listeners: list[Listener] = []
         self._last: dict[str, Any] = {}
         self._unreachable = False
+        # WHICH PLAYER ARE WE FOLLOWING. Sticky, so a second person starting something in
+        # another room can't yank the app off Tim's film mid-scene.
+        self._player: Optional[str] = None
+        # Tim's explicit choice, when he's made one. Outranks every heuristic below —
+        # the whole point of asking him is that his answer is final.
+        self._pinned: Optional[str] = None
+        # Everything genuinely on offer (one per player, ghosts already dropped). The UI
+        # asks him to choose when this has more than one thing in it.
+        self._candidates: list[dict[str, Any]] = []
 
     # ─── Listener API ─────────────────────────────────────────────
     def add_listener(self, fn: Listener) -> None:
@@ -43,6 +52,24 @@ class PlexMonitor:
 
     def current_state(self) -> dict[str, Any]:
         return dict(self._last)
+
+    def candidates(self) -> list[dict[str, Any]]:
+        """Everything Plex is offering, one per player, ghosts removed.
+
+        More than one means we are GUESSING, and Tim should be asked instead.
+        """
+        return [dict(c) for c in self._candidates]
+
+    def pinned(self) -> Optional[str]:
+        return self._pinned
+
+    def pin(self, rating_key: Optional[str]) -> None:
+        """Tim has told us what he is watching. That settles it.
+
+        Passing None un-pins and hands the choice back to the heuristics.
+        """
+        self._pinned = str(rating_key) if rating_key else None
+        log.info("plex: pinned to rating_key=%r", self._pinned)
 
     def is_unreachable(self) -> bool:
         return self._unreachable
@@ -82,7 +109,12 @@ class PlexMonitor:
                 if self._unreachable:
                     self._unreachable = False
                     await self._emit("reachable", {})
-                active = _extract_active(data)
+                self._candidates = _candidates(data)
+                active = _extract_active(
+                    data, prefer_player=self._player, pinned=self._pinned
+                )
+                if active:
+                    self._player = active.get("player_id") or self._player
                 await self._handle(active)
             except asyncio.CancelledError:
                 raise
@@ -184,16 +216,86 @@ class PlexMonitor:
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────
-def _extract_active(data: dict) -> Optional[dict]:
+def _recency(m: dict) -> int:
+    """When was this session last actually touched."""
+    for k in ("lastViewedAt", "updatedAt", "addedAt"):
+        try:
+            v = int(m.get(k) or 0)
+        except (TypeError, ValueError):
+            v = 0
+        if v:
+            return v
+    return 0
+
+
+def _player_id(m: dict) -> str:
+    p = m.get("Player") or {}
+    return str(p.get("machineIdentifier") or p.get("device") or p.get("title") or "?")
+
+
+def _is_playing(m: dict) -> bool:
+    return ((m.get("Player") or {}).get("state") or "").lower() == "playing"
+
+
+def _candidates(data: dict) -> list[dict]:
+    """Everything genuinely on offer — one per player, most recent, ghosts dropped."""
     mc = data.get("MediaContainer", {}) if isinstance(data, dict) else {}
-    metas = mc.get("Metadata") or []
-    if not metas:
-        return None
-    # Prefer "movie" type, fall back to first playing item.
+    metas = [m for m in (mc.get("Metadata") or []) if isinstance(m, dict)]
+    newest: dict[str, dict] = {}
     for m in metas:
-        if m.get("type") == "movie":
-            return _parse_meta(m)
-    return _parse_meta(metas[0])
+        pid = _player_id(m)
+        if pid not in newest or _recency(m) > _recency(newest[pid]):
+            newest[pid] = m
+    out = sorted(newest.values(), key=lambda m: (0 if _is_playing(m) else 1, -_recency(m)))
+    return [_parse_meta(m) for m in out]
+
+
+def _extract_active(
+    data: dict,
+    prefer_player: Optional[str] = None,
+    pinned: Optional[str] = None,
+) -> Optional[dict]:
+    """Which of Plex's sessions is the one Tim is actually watching.
+
+    THIS USED TO BE `metas[0]` — whichever Plex happened to list first.
+
+    Plex Web leaves GHOST SESSIONS behind. Switch episodes and the old one lingers in
+    /status/sessions with the same machineIdentifier, the same user, the same device — and
+    frequently listed FIRST. So the app latched onto the episode Tim had already left,
+    never saw the rating_key change, and never fired `media_change`. He switched to Hook Man;
+    the app sat on Skin; no briefing, no scene analysis, nothing. Silently, for as long as he
+    kept watching. (Verified against the live server: two sessions, same player, Skin at
+    lastViewedAt 1757273811 and Hook Man at 1757276292.)
+
+    The old "prefer type == movie" rule never helped here, because both were EPISODES — it
+    fell straight through to metas[0].
+
+    So:
+      1. A PLAYER CAN ONLY PLAY ONE THING. Where several sessions share a machineIdentifier,
+         only the most recently touched one is real; the rest are ghosts.
+      2. Stick with the player we were already following, if it's still there. Otherwise a
+         second person starting something in another room would yank the app away mid-film.
+      3. Prefer a session that is actually PLAYING over one that is paused.
+      4. Then the most recently touched.
+    """
+    cands = _candidates(data)
+    if not cands:
+        return None
+
+    # 0. TIM SAID SO. Nothing below gets a vote.
+    if pinned:
+        for c in cands:
+            if str(c.get("rating_key")) == str(pinned):
+                return c
+
+    # 1. Stay with the player we were already following.
+    if prefer_player:
+        mine = [c for c in cands if c.get("player_id") == prefer_player]
+        if mine:
+            return mine[0]
+
+    # 2. Already sorted: playing beats paused, then most recently touched.
+    return cands[0]
 
 
 def _parse_meta(m: dict) -> dict:
@@ -208,6 +310,9 @@ def _parse_meta(m: dict) -> dict:
             part_key = parts[0].get("key")
     directors = [d.get("tag") for d in (m.get("Director") or []) if d.get("tag")]
     state = (player.get("state") or "playing").lower()
+    player_id = _player_id(m)
+    player_name = player.get("title") or player.get("device") or player.get("product") or ""
+    last_seen = _recency(m)
     media_type = m.get("type")
     title = m.get("title") or ""
     year = m.get("year")
@@ -274,8 +379,15 @@ def _parse_meta(m: dict) -> dict:
         "player_product": player.get("product"),          # "Plex Web" / "Plex for Android" …
         "player_device": player.get("device"),
         "player_title": player.get("title"),              # "Tim's iPhone"
-        "player_id": player.get("machineIdentifier"),
+        # Use the SAME id the picker keys on — machineIdentifier, falling back to device
+        # or title. If these two ever disagreed, the sticky-player rule would silently
+        # stop sticking and the app would drift back onto whatever Plex listed first.
+        "player_id": player_id,
+        "player_name": player_name,
         "player_local": bool(player.get("local")),
+        # When this session was last actually touched. This is what tells a live session
+        # from the GHOST that Plex Web leaves behind when you change episode.
+        "last_seen": last_seen,
     }
 
 

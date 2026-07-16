@@ -462,6 +462,45 @@
         .rk-conflict {
             font-size: 0.64rem; color: var(--warning); padding: 6px 0 0 26px; line-height: 1.4;
         }
+        /* "There's no dial for a con, so this applies always." Informational, not a warning —
+           the room did the right thing; the vocabulary is just missing a word. */
+        .rk-scope-note {
+            font-size: 0.64rem; color: var(--text-muted); padding: 6px 0 0 26px;
+            line-height: 1.4; font-style: italic;
+        }
+        /* Said when the AI had no film to point at, or couldn't work the triggers out. */
+        .rule-hint {
+            font-size: 0.66rem; color: var(--text-muted); line-height: 1.45;
+            padding: 8px 10px; margin: 0 0 10px; border-radius: 8px;
+            background: var(--bg-surface); border: 1px dashed var(--border);
+        }
+        /* "None of these? Say it yourself." Sits under the menu, visibly a different move —
+           the cards are the AI's readings, this is his. */
+        .own-words {
+            margin: 14px 0 0; padding: 12px; border-radius: 10px;
+            background: var(--bg-surface); border: 1px dashed var(--border);
+        }
+        .ow-label { font-size: 0.66rem; color: var(--text-muted); margin-bottom: 8px; }
+        .own-words .rule-input { width: 100%; }
+        .ow-go { margin-top: 8px; }
+        .plex-pick { width: min(460px, 100vw - 24px); }
+        .pp-row {
+            display: flex; align-items: center; gap: 10px; width: 100%;
+            padding: 10px 12px; margin: 6px 0; border-radius: 10px; cursor: pointer;
+            background: var(--bg-surface); border: 1px solid var(--border);
+            color: var(--text-primary); text-align: left;
+        }
+        .pp-row:hover { border-color: var(--accent); }
+        .pp-row.current { border-color: var(--accent); background: rgba(99,102,241,0.10); }
+        .pp-t { font-size: 0.82rem; font-weight: 600; }
+        .pp-s { font-size: 0.64rem; color: var(--text-muted); margin-top: 2px; }
+        .pp-badge {
+            margin-left: auto; font-size: 0.58rem; letter-spacing: .06em;
+            color: var(--text-muted); text-transform: uppercase;
+        }
+        .kin-act.disabled, .kin-act:disabled {
+            opacity: 0.38; cursor: not-allowed;
+        }
         .rk-scope { margin: 10px 0 0 26px; padding-top: 8px; border-top: 1px dashed var(--border); }
         .rk-scope-q { font-size: 0.6rem; color: var(--text-muted); margin-bottom: 5px; }
         .rk-modes { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -1204,6 +1243,83 @@
             font-size: 0.92rem; font-weight: 700; letter-spacing: 0.02em;
             transition: all 0.15s;
         }
+        /* The reaction search box — "what are you reacting to?" */
+        .react-search {
+            width: 100%; box-sizing: border-box; resize: none;
+            padding: 12px 14px; border-radius: 12px;
+            background: var(--bg-surface); border: 1px solid var(--border);
+            color: var(--text-primary); font: inherit; font-size: 0.95rem; line-height: 1.4;
+        }
+        .react-search:focus { outline: none; border-color: var(--accent); }
+        .react-search-go {
+            width: 100%; margin-top: 10px; padding: 12px;
+            border-radius: 12px; cursor: pointer; font-weight: 700;
+            background: var(--accent); border: 1px solid var(--accent); color: #fff;
+        }
+        .react-browse {
+            display: block; width: 100%; margin-top: 12px; padding: 8px;
+            background: none; border: none; cursor: pointer;
+            color: var(--text-muted); font: inherit; font-size: 0.82rem;
+        }
+        .react-browse:hover { color: var(--text-secondary); }
+        /* Quote tab — a list of spoken lines. */
+        .quotes { display: flex; flex-direction: column; gap: 8px; }
+        .quote {
+            width: 100%; text-align: left; box-sizing: border-box;
+            padding: 12px 14px; border-radius: 12px; cursor: pointer;
+            background: var(--bg-surface); border: 1px solid var(--border);
+        }
+        .quote:hover { border-color: var(--accent); }
+        .quote-line { color: var(--text-primary); font-size: 0.95rem; line-height: 1.35; }
+        .quote-who {
+            margin-top: 5px; color: var(--text-muted);
+            font-size: 0.78rem; font-weight: 600;
+        }
+        /* Song tab — the identified-track card. */
+        .song-wait { padding: 20px 4px; color: var(--text-muted); text-align: center; }
+        .song-cue {
+            margin-top: 10px; color: var(--text-secondary);
+            font-size: 0.86rem; font-style: italic; line-height: 1.4;
+        }
+        .song-card {
+            padding: 16px; border-radius: 14px;
+            background: var(--bg-elevated); border: 1px solid var(--border);
+        }
+        .song-title { font-size: 1.15rem; font-weight: 800; color: var(--text-primary); line-height: 1.25; }
+        .song-artist { margin-top: 3px; color: var(--text-secondary); font-size: 0.95rem; font-weight: 600; }
+        .song-meta { margin-top: 6px; color: var(--text-muted); font-size: 0.82rem; }
+        .song-note { margin-top: 10px; color: var(--text-secondary); font-size: 0.88rem; line-height: 1.4; }
+        .song-src { margin-top: 8px; color: var(--text-muted); font-size: 0.74rem; }
+        .song-react { width: 100%; margin-top: 12px; padding: 12px; font-weight: 700; }
+        /* The per-stage refine box — a row: text + a small go button. */
+        .refine { display: flex; gap: 8px; margin-top: 12px; align-items: stretch; }
+        .refine-in {
+            flex: 1 1 auto; min-width: 0; resize: none; box-sizing: border-box;
+            padding: 9px 12px; border-radius: 10px;
+            background: var(--bg-surface); border: 1px dashed var(--border);
+            color: var(--text-primary); font: inherit; font-size: 0.86rem; line-height: 1.3;
+        }
+        .refine-in:focus { outline: none; border-color: var(--accent); border-style: solid; }
+        .refine-go {
+            flex: 0 0 auto; padding: 0 14px; border-radius: 10px; cursor: pointer;
+            background: var(--bg-elevated); border: 1px solid var(--border);
+            color: var(--text-secondary); font-weight: 700;
+        }
+        .refine-go:hover { border-color: var(--accent); color: var(--text-primary); }
+        .pick.found { border-color: var(--accent); color: var(--text-primary); }
+        /* Intensity: three chips + a shade box. */
+        .intensity { display: flex; gap: 8px; }
+        .int-chip {
+            flex: 1 1 0; padding: 14px 8px; border-radius: 11px; cursor: pointer;
+            background: var(--bg-surface); border: 1px solid var(--border);
+            color: var(--text-secondary); font-weight: 700; font-size: 0.9rem;
+        }
+        .int-chip.on { border-color: var(--accent); color: var(--text-primary);
+            background: rgba(99,102,241,0.12); }
+        .int-chip.wow.on { border-color: #e0913a; color: #f0c453;
+            background: rgba(224,145,58,0.12); }
+        .shade-in { width: 100%; box-sizing: border-box; margin-top: 12px; }
+        .int-next { width: 100%; margin-top: 12px; padding: 12px; }
         .react-handle:hover:not(:disabled) { border-color: var(--accent); color: var(--text-primary); }
         .react-handle:active:not(:disabled) { transform: scale(0.985); }
         .react-handle:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -2070,6 +2186,29 @@
         /* DRAWER: the chat slides over the film, and Plex keeps its full width. */
         body.lay-theater.th-drawer .col-main { transform: translateX(100%); }
         body.lay-theater.th-drawer.rail-open .col-main { transform: translateX(0); }
+
+        /* ONE THING AT A TIME. When the break-out panel opens along the bottom — the rules,
+           the react wizard, X-Ray — the chat rail gets out of the way entirely.
+           `liftRail()` used to merely SHRINK it to sit above the panel, so you were left
+           reading a squeezed column of chat next to a panel you had opened precisely
+           because you wanted the whole screen for it. Two things competing, neither with
+           enough room.
+           It slides back on its own when the panel closes: this only overrides the
+           TRANSFORM, so the rail's own open/closed state is untouched and remembered. */
+        body.lay-theater.bottom-open .col-main,
+        /* ...and this one has to out-specify `.th-drawer.rail-open .col-main` above, which
+           carries four classes and would otherwise keep sliding the rail straight back in.
+           Measured: the rail sat at left=1180 with the panel open. Beaten on specificity, not
+           on !important — an !important here would be a lie about which rule is in charge. */
+        body.lay-theater.th-drawer.rail-open.bottom-open .col-main {
+            transform: translateX(100%);
+        }
+        /* ...and in PINNED mode the film takes the column back while the rail is away,
+           instead of leaving a 420px hole where the chat used to be. */
+        body.lay-theater.th-pinned.bottom-open .plex-bg,
+        body.lay-theater.th-pinned.bottom-open .film-glow {
+            width: calc(100% - var(--film-pad) * 2);
+        }
         /* PINNED: the chat takes a column and Plex shrinks to fit — see the width
            rule up with the bezel, where the film and its glow are kept in step.
 
@@ -2204,6 +2343,25 @@
      The debrief is a Kindroid message to EVERY kin: minutes of waiting, and a permanent
      entry in each of their memories. Right for a real movie night; wrong when Tim's cut a
      film short. It used to fire every time with no way to decline. -->
+<!-- WHICH ONE ARE YOU WATCHING?
+     Plex can report several sessions at once, and the app has to pick one. When it is
+     GUESSING — more than one real player — it says so and asks, rather than picking wrong
+     and going quiet for the rest of the night. -->
+<div class="ingestion-pop-overlay" id="plexPickOverlay" onclick="closePlexPick()"></div>
+<div class="ingestion-pop plex-pick" id="plexPickPop" role="dialog" aria-label="Which one are you watching?">
+    <div class="ingestion-pop-header">
+        <span class="ingestion-pop-title">📺 Which one are you watching?</span>
+        <button class="ingestion-pop-close" onclick="closePlexPick()" aria-label="Close">✕</button>
+    </div>
+    <p class="debrief-sub" id="plexPickWhy">Plex is reporting more than one thing playing.</p>
+    <div id="plexPickList"></div>
+    <div class="debrief-btns">
+        <button class="debrief-btn no" onclick="pickPlex(null)">
+            <span class="db-t">Let the app decide</span>
+        </button>
+    </div>
+</div>
+
 <div class="ingestion-pop-overlay" id="debriefOverlay" onclick="closeDebriefAsk()"></div>
 <div class="ingestion-pop debrief-pop" id="debriefPop" role="dialog" aria-label="End the session">
     <div class="ingestion-pop-header">
@@ -2651,9 +2809,9 @@
         <button class="drawer-close" type="button" onclick="closeDrawer()">✕</button>
     </div>
     <div class="drawer-modes" id="drawerModes">
-        <button class="drawer-mode active" type="button" data-mode="moment" onclick="setDrawerMode('moment')">this moment</button>
-        <button class="drawer-mode" type="button" data-mode="read"   onclick="setDrawerMode('read')">I've got a read</button>
-        <button class="drawer-mode" type="button" data-mode="film"   onclick="setDrawerMode('film')">the movie so far</button>
+        <button class="drawer-mode active" type="button" data-tab="reaction" onclick="setDrawerTab('reaction')">Reaction</button>
+        <button class="drawer-mode" type="button" data-tab="quote" onclick="setDrawerTab('quote')">Quote</button>
+        <button class="drawer-mode" type="button" data-tab="song"  onclick="setDrawerTab('song')">Song</button>
     </div>
     <div class="drawer-body" id="drawerBody"></div>
 </div>
@@ -3659,8 +3817,105 @@
         header.appendChild(info);
         card.appendChild(header);
         card.appendChild(el('div', { class: 'briefing-body', text: msg.content || '' }));
-        card.appendChild(el('span', { class: 'briefing-tag', text: 'Briefing sent to ' + charName() }));
+        // WHO IT ACTUALLY WENT TO — the whole ROOM, not who you happen to be talking to.
+        //
+        // This used to say `charName()`, which returns the ADDRESSED kin. So a briefing that
+        // fanned out to Jeff, Adam, Thomas and Bobby proudly announced "Briefing sent to
+        // Adam", because Adam was the one in "talking to". The label was describing a
+        // different thing from the one the server had done, and it was the label Tim believed.
+        //
+        // The briefing is the lights going down: it goes to everyone PRESENT, listeners
+        // included. So say so, and name them, because a missing name is the only way to spot
+        // a kin who didn't get it.
+        card.appendChild(el('span', { class: 'briefing-tag', text: 'Briefing sent to ' + briefedNames() }));
         return card;
+    }
+
+    function briefedNames() {
+        const room = (state.room && state.room.length) ? state.room : state.addressed;
+        const names = (room || []).map(k => (kinByKey(k) || {}).first_name).filter(Boolean);
+        if (!names.length) return state.activeCharFirst || 'Eli';
+        if (names.length === 1) return names[0];
+        return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  WHICH ONE ARE YOU WATCHING?
+    // ═══════════════════════════════════════════════════════════
+    //
+    // Plex reports several sessions at once and the app has to pick one. It used to take
+    // whichever Plex listed first, which was often a GHOST — Plex Web leaves the old session
+    // behind when you change episode. Tim switched to Hook Man; the app sat on Skin; and
+    // because the rating_key never appeared to change, NOTHING happened. No briefing, no
+    // scene analysis, nothing, for as long as he kept watching, and nothing on screen said so.
+    //
+    // The picker below is now much better at guessing. But when it is genuinely guessing —
+    // two real players — it should ASK rather than be quietly wrong, because "quietly wrong"
+    // is the failure that costs an evening.
+    let _plexAsked = '';   // don't nag about the same pair of sessions twice
+
+    async function checkPlexAmbiguity() {
+        try {
+            const r = await fetch('/api/plex/sessions');
+            if (!r.ok) return;
+            const d = await r.json();
+            if (!d.ambiguous || d.pinned) return;
+            const sig = d.sessions.map(x => x.rating_key).sort().join(',');
+            if (sig === _plexAsked) return;      // already asked about exactly this
+            _plexAsked = sig;
+            openPlexPick(d.sessions);
+        } catch (e) { /* the app still works; it just guessed */ }
+    }
+
+    async function openPlexPick(sessions) {
+        if (!sessions) {
+            const r = await fetch('/api/plex/sessions');
+            sessions = (await r.json()).sessions || [];
+        }
+        const list = $('plexPickList');
+        list.innerHTML = '';
+        if (!sessions.length) {
+            list.appendChild(el('div', { class: 'debrief-sub', text: 'Nothing is playing.' }));
+        }
+        sessions.forEach(sx => {
+            const mins = (ms) => Math.floor((ms || 0) / 60000);
+            const row = el('button', {
+                class: 'pp-row' + (sx.current ? ' current' : ''),
+                onclick: () => pickPlex(sx.rating_key),
+            });
+            row.appendChild(el('div', {}, [
+                el('div', { class: 'pp-t', text: sx.title || '(untitled)' }),
+                el('div', { class: 'pp-s',
+                    text: `${sx.state} · ${mins(sx.view_offset_ms)}m in`
+                        + (sx.player ? ` · ${sx.player}` : '') }),
+            ]));
+            if (sx.current) row.appendChild(el('span', { class: 'pp-badge', text: 'following' }));
+            list.appendChild(row);
+        });
+        $('plexPickWhy').textContent = sessions.length > 1
+            ? 'Plex is reporting more than one thing playing. Which one is you?'
+            : 'Pick what the app should follow.';
+        $('plexPickOverlay').classList.add('open');
+        $('plexPickPop').classList.add('open');
+    }
+
+    function closePlexPick() {
+        $('plexPickOverlay').classList.remove('open');
+        $('plexPickPop').classList.remove('open');
+    }
+
+    async function pickPlex(ratingKey) {
+        try {
+            await fetch('/api/plex/pick', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rating_key: ratingKey }),
+            });
+            showToast(ratingKey ? 'Following that one now.' : 'Back to guessing.');
+        } catch (e) {
+            showToast("Couldn't set that — " + e.message);
+        }
+        closePlexPick();
     }
 
     function isSettingOn(key) {
@@ -4408,7 +4663,19 @@
             } catch (e) { /* handled below */ }
         }
         if (turnId == null) {
-            showToast("That turn happened before the room started keeping records.");
+            // NO TURN TO GRADE — but never a dead end, and never a lie.
+            //
+            // A briefing isn't a turn. Neither is a catch-up, or anything from before this
+            // table existed. Their replies hang off no decision, so a 👍/👎 has nothing to be
+            // a verdict ON and NOTHING IS BANKED — which is why this must not latch the
+            // button. A latched thumb says "counted"; nothing counted.
+            //
+            // But he tapped it because he had a thought about this person, and the app used
+            // to throw the thought away to make a point about its own bookkeeping. So: go
+            // straight into the dialog, which now opens with rules read off WHO HE IS plus a
+            // box — rather than the blank page it used to be.
+            showToast(`Nothing to grade there — but here's what I'd suggest for ${name}.`);
+            openRuleDialog(kinKey, null, 'manual');
             return;
         }
 
@@ -4449,8 +4716,45 @@
     // Design budget: THREE TAPS on a good night. Flag → tick a rule → Save.
     const RX_RULE = {
         kin: null, kinName: '', turnId: null, direction: '',
-        proposals: [], picked: new Set(), scopes: {},   // index -> [conditions]
+        // KEYED ON UID, NOT ON POSITION. See adoptProposals below — this is the whole fix.
+        proposals: [],         // [{uid, source, rule_text, verdict, is_law, conditions, …}]
+        picked: new Set(),     // of UID
+        scopes: {},            // uid -> [conditions]
         loading: false, facts: null,
+        interpreting: false,   // the AI is reading a sentence Tim typed
+        grounded: false,       // it had a moment to point at (else it read him instead)
+        groundedOn: '',        // 'turn' | 'session' | ''
+        rawFallback: '',       // the AI failed; his words, held so they aren't lost
+        fromEditor: null,      // he came from the rules list — hide it, then put it back
+        youSaid: '',           // what he said IN THE FILM
+        youWrote: '',          // the rule sentence he typed. A DIFFERENT thing.
+        whatHappened: '',
+        feedbackId: null,
+    };
+
+    // EVERY PROPOSAL HAS A STABLE ID AND A SOURCE.
+    //
+    // `picked` and `scopes` used to be keyed on the ARRAY INDEX. Then the "say it yourself"
+    // box was added, and typing into it REPLACED the proposals array — so every tick Tim had
+    // already made silently landed on a different rule, and the AI's suggestions he'd been
+    // reading vanished. He typed into a box labelled "None of these?" and the "these" went
+    // away, including the ones he wanted.
+    //
+    // Index-keyed state cannot survive a list that grows. So: a uid per proposal, and the
+    // list only ever GROWS.
+    let _ruleUid = 0;
+    const nextUid = () => 'r' + (++_ruleUid);
+
+    function adoptProposals(rules, source) {
+        const out = (rules || []).map(r => ({ ...r, uid: nextUid(), source }));
+        out.forEach(r => { RX_RULE.scopes[r.uid] = r.conditions || []; });
+        return out;
+    }
+
+    const SOURCE_HEADS = {
+        yours:   'From what you said',
+        moment:  'What I made of that moment',
+        profile: 'From what I know of him',
     };
 
     async function loadFacts() {
@@ -4468,15 +4772,31 @@
             turnId: turnIdOverride || null, direction,
             feedbackId: feedbackId || null,
             proposals: [], picked: new Set(), scopes: {}, loading: true, error: '',
+            youSaid: '', whatHappened: '', youWrote: '',
+            grounded: false, groundedOn: '', rawFallback: '', interpreting: false,
         });
 
         // The turn is the anchor. A message id resolves to it server-side; a room-note
-        // already carries it. Without one there's nothing to reason from.
+        // already carries it. Without one there's nothing to reason from — but that is no
+        // longer a dead end; see the `manual` branch below.
         if (!RX_RULE.turnId && msgId) {
             try {
                 const r = await fetch(`/api/turn-for-message/${msgId}`);
                 if (r.ok) RX_RULE.turnId = (await r.json()).turn_id;
-            } catch (e) { /* fall through — handled below */ }
+            } catch (e) { /* fall through */ }
+        }
+
+        // IF HE CAME FROM THE RULES LIST, GET IT OUT OF THE WAY.
+        //
+        // Both are `.poster-menu` panels and both were left open, so the LIST sat on top of
+        // the dialog and clicking "Write a rule by hand" appeared to do nothing at all. The
+        // dialog was there the whole time, underneath, perfectly functional and completely
+        // invisible. (A DOM test passes straight through this — Playwright finds an element
+        // by id whether or not a human could ever see it. Test the pixels.)
+        RX_RULE.fromEditor = $('rulesMenu').classList.contains('open') ? RULES.kin : null;
+        if (RX_RULE.fromEditor) {
+            $('rulesOverlay').classList.remove('open');
+            $('rulesMenu').classList.remove('open');
         }
 
         openBottom('rule');
@@ -4496,15 +4816,32 @@
         renderRuleDialog();
 
         await loadFacts();
-        if (direction === 'manual') { RX_RULE.loading = false; renderRuleDialog(); return; }
 
-        if (!RX_RULE.turnId) {
+        // NO MOMENT? THEN READ HIM INSTEAD OF STARING AT HIM.
+        //
+        // This used to set loading=false and hand him a blank textarea. So the one path where
+        // he least knows what to write — "I've opened Bobby's rules, now what?" — was the one
+        // where the app said nothing at all. The whole premise is that the model articulates
+        // and he judges; a blank page inverts it.
+        if (direction === 'manual' || !RX_RULE.turnId) {
+            try {
+                const r = await fetch('/api/rules/suggest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kin_key: kinKey }),
+                });
+                if (r.ok) {
+                    const data = await r.json();
+                    RX_RULE.proposals = adoptProposals(data.rules, 'profile');
+                }
+            } catch (e) {
+                // No suggestions is survivable — the box below is always there.
+            }
             RX_RULE.loading = false;
-            RX_RULE.error = "I don't have a record of that turn — it happened before "
-                          + "the room started keeping them.";
             renderRuleDialog();
             return;
         }
+
         try {
             const r = await fetch('/api/rules/propose', {
                 method: 'POST',
@@ -4513,15 +4850,14 @@
             });
             if (!r.ok) throw new Error((await r.json()).detail || 'no');
             const data = await r.json();
-            RX_RULE.proposals = data.rules || [];
-            RX_RULE.youSaid = data.you_said || '';
-            RX_RULE.whatHappened = data.what_happened || '';
             // The LLM proposes the SCOPE too — which dials are actually load-bearing.
             // Tim corrects a guess; he never reasons about scope from a blank slate.
-            RX_RULE.proposals.forEach((p, i) => { RX_RULE.scopes[i] = p.conditions || []; });
+            RX_RULE.proposals = adoptProposals(data.rules, 'moment');
+            RX_RULE.youSaid = data.you_said || '';
+            RX_RULE.whatHappened = data.what_happened || '';
             RX_RULE.error = '';
         } catch (e) {
-            RX_RULE.error = 'Couldn\'t think of any rules — ' + e.message;
+            RX_RULE.error = "Couldn't think of any rules — " + e.message;
         }
         RX_RULE.loading = false;
         renderRuleDialog();
@@ -4530,99 +4866,157 @@
     function closeRuleDialog() {
         $('ruleOverlay').classList.remove('open');
         $('ruleMenu').classList.remove('open');
+        RX_RULE.rawFallback = '';
         if (LAYOUT === 'theater' && TH.bottom === 'rule') closeBottom();
+        // IF HE CAME FROM THE RULES LIST, PUT HIM BACK — AND REFRESH IT.
+        //
+        // Refreshed, because the rule he just wrote is not in the list that was rendered
+        // before it existed. He'd close the dialog, look at an unchanged list, and conclude
+        // the save had failed. It hadn't; he was looking at a stale render.
+        if (RX_RULE.fromEditor) {
+            const back = RX_RULE.fromEditor;
+            RX_RULE.fromEditor = null;
+            openRulesEditor(back);
+        }
     }
 
     function renderRuleDialog() {
         const body = $('ruleBody'), foot = $('ruleFoot');
         body.innerHTML = ''; foot.innerHTML = '';
 
+        // THE FOOT ALWAYS HAS A WAY OUT. The loading and error states used to leave it
+        // completely empty, so the only exit from a failed dialog was the ✕ in the corner.
+        const cancel = () => foot.appendChild(
+            el('button', { class: 'rule-cancel', onclick: closeRuleDialog }, ['Cancel']));
+
         if (RX_RULE.loading) {
             const confirming = (RX_RULE.direction || '').startsWith('was_right');
             body.appendChild(el('div', { class: 'rule-loading',
-                text: confirming
+                text: RX_RULE.interpreting
+                    ? `Working out what you mean, and what it's really about…`
+                    : confirming
                     ? `Working out what ${RX_RULE.kinName} just got right, and why…`
+                    : RX_RULE.direction === 'manual'
+                    ? `Reading ${RX_RULE.kinName}, and the rules you've already written…`
                     : `Looking at what ${RX_RULE.kinName} did, and at who he is…` }));
-            return;
-        }
-        if (RX_RULE.error) {
-            body.appendChild(el('div', { class: 'rule-err', text: RX_RULE.error }));
+            cancel();
             return;
         }
 
         // What actually happened. He'll have scrolled; remind him.
-        if (RX_RULE.youSaid || RX_RULE.whatHappened) {
-            const ctx = el('div', { class: 'rule-ctx' });
-            if (RX_RULE.youSaid) {
-                ctx.appendChild(el('div', {}, [
-                    el('span', { class: 'rc-k', text: 'You said' }),
-                    el('span', { class: 'rc-v', text: '“' + RX_RULE.youSaid.slice(0, 140) + '”' }),
-                ]));
-            }
-            if (RX_RULE.whatHappened) {
-                ctx.appendChild(el('div', {}, [
-                    el('span', { class: 'rc-k', text: 'The room' }),
-                    el('span', { class: 'rc-v', text: RX_RULE.whatHappened }),
-                ]));
-            }
-            body.appendChild(ctx);
+        const ctx = el('div', { class: 'rule-ctx' });
+        if (RX_RULE.youSaid) {
+            ctx.appendChild(el('div', {}, [
+                el('span', { class: 'rc-k', text: 'You said' }),
+                el('span', { class: 'rc-v', text: '“' + RX_RULE.youSaid.slice(0, 140) + '”' }),
+            ]));
+        }
+        if (RX_RULE.whatHappened) {
+            ctx.appendChild(el('div', {}, [
+                el('span', { class: 'rc-k', text: 'The room' }),
+                el('span', { class: 'rc-v', text: RX_RULE.whatHappened }),
+            ]));
+        }
+        // His RULE sentence is a different thing from what he said in the film, and it used
+        // to overwrite it. Two rows, two facts.
+        if (RX_RULE.youWrote) {
+            ctx.appendChild(el('div', {}, [
+                el('span', { class: 'rc-k', text: 'You wrote' }),
+                el('span', { class: 'rc-v', text: '“' + RX_RULE.youWrote.slice(0, 140) + '”' }),
+            ]));
+        }
+        if (ctx.childNodes.length) body.appendChild(ctx);
+
+        if (RX_RULE.error) {
+            body.appendChild(el('div', { class: 'rule-err', text: RX_RULE.error }));
         }
 
-        if (!RX_RULE.proposals.length) {
-            body.appendChild(el('div', { class: 'step-label',
-                text: `Write a rule for ${RX_RULE.kinName}` }));
-            body.appendChild(buildManualRule());
-            return;
+        // THE AI FAILED, BUT HE ALREADY WROTE THE THING. Offer it back as a card, among the
+        // others — it used to be rendered only in the no-proposals branch, so from the thumbs
+        // dialog the toast promised "save it as you wrote it?" and the form never appeared.
+        if (RX_RULE.rawFallback) body.appendChild(buildRawFallback());
+
+        // THE CARDS, GROUPED BY WHERE THEY CAME FROM. His readings first: he wrote them, and
+        // he is looking for them.
+        const order = ['yours', 'moment', 'profile'];
+        for (const src of order) {
+            const group = RX_RULE.proposals.filter(p => p.source === src);
+            if (!group.length) continue;
+            body.appendChild(el('div', { class: 'step-label', text: SOURCE_HEADS[src] }));
+            if (src === 'yours' && RX_RULE.grounded === false) {
+                body.appendChild(el('div', { class: 'rule-hint',
+                    text: 'No film moment to point at, so I read this from your words and from '
+                        + 'who he is — check the triggers.' }));
+            }
+            group.forEach(p => body.appendChild(buildProposalCard(p)));
         }
 
-        body.appendChild(el('div', { class: 'step-label',
-            text: `Rules I can glean from ${RX_RULE.kinName} — tap any that ring true` }));
-
-        RX_RULE.proposals.forEach((p, i) => {
-            const picked = RX_RULE.picked.has(i);
-            const card = el('div', { class: 'rule-card' + (picked ? ' on' : '') });
-
-            const head = el('div', { class: 'rk-head', onclick: () => {
-                picked ? RX_RULE.picked.delete(i) : RX_RULE.picked.add(i);
-                renderRuleDialog();
-            }});
-            head.appendChild(el('span', { class: 'rk-tick', text: picked ? '☑' : '☐' }));
-            head.appendChild(el('span', {
-                class: 'rk-verdict ' + (p.is_law ? 'law' : 'lean'),
-                text: p.verdict,
-                title: p.is_law
-                    ? 'A LAW — enforced in code. The room is never even asked.'
-                    : 'A LEAN — guidance the room weighs against everything else.',
-            }));
-            head.appendChild(el('span', { class: 'rk-text', text: p.rule_text }));
-            card.appendChild(head);
-
-            if (p.rule_why) {
-                card.appendChild(el('div', { class: 'rk-why', text: p.rule_why }));
-            }
-            if (p.conflicts_with) {
-                card.appendChild(el('div', { class: 'rk-conflict',
-                    text: '⚠ ' + p.conflicts_with }));
-            }
-            // The scope, only once he's ticked it. Nothing to decide until then.
-            if (picked) card.appendChild(buildScopeRow(i));
-            body.appendChild(card);
-        });
+        // SAY IT YOURSELF — ALWAYS. This used to sit below an early `return`, so on the two
+        // paths with no proposals it was literally unreachable and he got a bare textarea
+        // with no suggestions at all.
+        body.appendChild(buildOwnWords());
 
         const n = RX_RULE.picked.size;
-        const save = el('button', {
+        cancel();
+        foot.appendChild(el('button', {
             class: 'rule-save' + (n ? '' : ' off'),
             onclick: n ? saveRules : null,
-        }, [n ? `Save ${n} rule${n === 1 ? '' : 's'}` : 'Tap a rule above']);
-        foot.appendChild(el('button', { class: 'rule-cancel', onclick: closeRuleDialog }, ['Cancel']));
-        foot.appendChild(save);
+        }, [n ? `Save ${n} rule${n === 1 ? '' : 's'}` : 'Tap a rule above']));
+    }
+
+    function buildProposalCard(p) {
+        const picked = RX_RULE.picked.has(p.uid);
+        const card = el('div', { class: 'rule-card' + (picked ? ' on' : '') });
+
+        const head = el('div', { class: 'rk-head', onclick: () => {
+            picked ? RX_RULE.picked.delete(p.uid) : RX_RULE.picked.add(p.uid);
+            renderRuleDialog();
+        }});
+        head.appendChild(el('span', { class: 'rk-tick', text: picked ? '☑' : '☐' }));
+        head.appendChild(el('span', {
+            class: 'rk-verdict ' + (p.is_law ? 'law' : 'lean'),
+            text: p.verdict,
+            title: p.is_law
+                ? 'A LAW — enforced in code. The room is never even asked.'
+                : 'A LEAN — guidance the room weighs against everything else.',
+        }));
+        head.appendChild(el('span', { class: 'rk-text', text: p.rule_text }));
+        card.appendChild(head);
+
+        if (p.rule_why) card.appendChild(el('div', { class: 'rk-why', text: p.rule_why }));
+        if (p.conflicts_with) {
+            card.appendChild(el('div', { class: 'rk-conflict', text: '⚠ ' + p.conflicts_with }));
+        }
+
+        const conds = RX_RULE.scopes[p.uid] || [];
+        if (p.is_law && !conds.length) {
+            // The one that can silently mute someone. Say what it DOES, not that it is
+            // "broad" — "broad" is an abstraction and he will click past it.
+            card.appendChild(el('div', { class: 'rk-conflict',
+                text: '⚠ A LAW with no trigger — it applies on EVERY turn. '
+                    + RX_RULE.kinName + ' would '
+                    + (p.verdict === 'never'
+                        ? 'never speak again, in any scene, in any film.'
+                        : 'be pulled into every single turn, in any scene.')
+                    + ' Add a trigger below, or soften it to “usually”/“rarely”.' }));
+        } else if (p.scope_note) {
+            // WHY IT ISN'T SCOPED. The registry is finite — there is no dial for "a con", or
+            // "a betrayal". When Tim names a trigger we don't have, the honest move is to
+            // leave the rule general and TELL HIM, rather than pin it to the nearest
+            // half-fitting fact and have it fire on every tense scene forever.
+            card.appendChild(el('div', { class: 'rk-scope-note', text: 'ⓘ ' + p.scope_note }));
+        }
+
+        // The scope, only once he's ticked it. Nothing to decide until then.
+        if (picked) card.appendChild(buildScopeRow(p.uid));
+        return card;
     }
 
     // THE SCOPE. Default is BROAD — "always" — because a rule pinned to every fact of
     // one evening will never fire again as long as he lives, and it looks like
     // precision the whole time you're doing it.
-    function buildScopeRow(i) {
-        const conds = RX_RULE.scopes[i] || [];
+    function buildScopeRow(uid) {
+        const conds = RX_RULE.scopes[uid] || [];
         const wrap = el('div', { class: 'rk-scope' });
         wrap.appendChild(el('div', { class: 'rk-scope-q', text: 'When does it apply?' }));
 
@@ -4630,12 +5024,12 @@
         const universal = conds.length === 0;
         modes.appendChild(el('button', {
             class: 'rk-mode' + (universal ? ' on' : ''),
-            onclick: () => { RX_RULE.scopes[i] = []; renderRuleDialog(); },
+            onclick: () => { RX_RULE.scopes[uid] = []; renderRuleDialog(); },
         }, ['Always']));
         modes.appendChild(el('button', {
             class: 'rk-mode' + (universal ? '' : ' on'),
             onclick: () => {
-                if (!conds.length) openDialPicker(i);
+                if (!conds.length) openDialPicker(uid);
             },
         }, ['Only when…']));
         wrap.appendChild(modes);
@@ -4647,13 +5041,13 @@
                 const opt = (f?.options || []).find(o => String(o.value) === String((c.value || [])[0]));
                 const label = `${f ? f.label : c.fact}: ${opt ? opt.label : (c.value || []).join(', ')}`;
                 const chip = el('button', { class: 'rk-chip', onclick: () => {
-                    RX_RULE.scopes[i] = conds.filter((_, k) => k !== ci);
+                    RX_RULE.scopes[uid] = conds.filter((_, k) => k !== ci);
                     renderRuleDialog();
                 }}, [label, el('span', { class: 'rk-x', text: '✕' })]);
                 chips.appendChild(chip);
             });
             chips.appendChild(el('button', { class: 'rk-chip add',
-                onclick: () => openDialPicker(i) }, ['+ a dial']));
+                onclick: () => openDialPicker(uid) }, ['+ a dial']));
             wrap.appendChild(chips);
         }
         return wrap;
@@ -4662,7 +5056,7 @@
     // The dial picker renders itself FROM THE REGISTRY. Add a fact to facts.py and it
     // appears here with no front-end work at all — which is the entire reason the
     // registry exists rather than a hardcoded list of columns.
-    function openDialPicker(i) {
+    function openDialPicker(uid) {
         const reg = RX_RULE.facts;
         if (!reg) return;
         const body = $('ruleBody');
@@ -4678,7 +5072,7 @@
                     row.appendChild(el('button', { class: 'rk-chip', title: f.blurb,
                         onclick: () => {
                             const op = f.kind === 'set' ? 'includes' : 'is';
-                            RX_RULE.scopes[i] = (RX_RULE.scopes[i] || []).concat([
+                            RX_RULE.scopes[uid] = (RX_RULE.scopes[uid] || []).concat([
                                 { fact: f.key, op, value: [String(o.value)] },
                             ]);
                             renderRuleDialog();
@@ -4692,24 +5086,103 @@
         foot.appendChild(el('button', { class: 'rule-cancel', onclick: renderRuleDialog }, ['← Back']));
     }
 
-    function buildManualRule() {
-        const wrap = el('div', { class: 'rule-card on' });
+    // WRITE A RULE IN YOUR OWN WORDS.
+    //
+    // His sentence becomes a PROPOSAL — the AI reads it, works out the triggers, and hands
+    // back 2-3 readings that differ mainly in SCOPE, because that is the thing his English is
+    // always loose about and the thing that decides whether the rule ever fires.
+    //
+    // It ADDS to the list. It used to REPLACE it, which meant typing here destroyed the
+    // suggestions he was reading and silently un-ticked anything he'd already chosen.
+    function buildOwnWords() {
+        const wrap = el('div', { class: 'own-words' });
+        const has = RX_RULE.proposals.length;
+        wrap.appendChild(el('div', { class: 'ow-label',
+            text: has
+                ? (RX_RULE.turnId
+                    ? 'None of these? Say it yourself — I’ll use what just happened.'
+                    : 'None of these? Say it yourself.')
+                : `Say it however you'd say it. I'll work out the triggers.` }));
+
         const text = el('textarea', { class: 'rule-input', rows: 2,
-            placeholder: `e.g. ${RX_RULE.kinName} stays out of grief between other people` });
+            placeholder: RX_RULE.turnId
+                ? `e.g. he should've jumped in there — he knows a con when he sees one`
+                : `e.g. ${RX_RULE.kinName} always jumps in when someone's being conned` });
+        const go = el('button', { class: 'rule-save ow-go',
+            onclick: () => interpretRule(text.value) }, ['Work it out →']);
+        // Enter sends; Shift+Enter is a newline. Same contract as the chat box.
+        text.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); interpretRule(text.value); }
+        });
+
+        wrap.appendChild(text);
+        wrap.appendChild(go);
+        if (!has) setTimeout(() => text.focus(), 30);
+        return wrap;
+    }
+
+    async function interpretRule(raw) {
+        const text = (raw || '').trim();
+        if (!text) return;
+        RX_RULE.loading = true;
+        RX_RULE.interpreting = true;
+        RX_RULE.error = '';
+        renderRuleDialog();
+        try {
+            const r = await fetch('/api/rules/interpret', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // THE TURN IS THE GROUNDING. Written from the thumbs popup, the AI sees the
+                // exact moment he is pointing at — not just "recently, in the room".
+                body: JSON.stringify({ kin_key: RX_RULE.kin, text, turn_id: RX_RULE.turnId }),
+            });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'no luck');
+            const data = await r.json();
+            const mine = adoptProposals(data.rules, 'yours');
+            if (!mine.length) throw new Error("I couldn't make a rule out of that");
+
+            // ADD, NEVER REPLACE. His readings go on top, because he wrote them and he is
+            // looking for them — but everything already on screen stays, and every tick he
+            // had already made survives, because they are keyed on uid and not on position.
+            RX_RULE.proposals = [...mine, ...RX_RULE.proposals];
+            RX_RULE.picked.add(mine[0].uid);          // pre-tick his best reading
+            RX_RULE.youWrote = data.you_said || text; // a DIFFERENT row from what he said in the film
+            RX_RULE.grounded = !!data.grounded;
+            RX_RULE.groundedOn = data.grounded_on || '';
+        } catch (e) {
+            // NEVER TRAP A RULE HE HAS ALREADY WRITTEN behind a dead API. Hand him the raw
+            // form with his words still in it, and let him save it as typed.
+            RX_RULE.rawFallback = text;
+            showToast(`Couldn't work that out — ${e.message}. Save it as you wrote it?`, 5000);
+        } finally {
+            RX_RULE.loading = false;
+            RX_RULE.interpreting = false;
+            renderRuleDialog();
+        }
+    }
+
+    // The escape hatch: the AI failed, but he already wrote the thing. Let him keep it.
+    function buildRawFallback() {
+        const wrap = el('div', { class: 'rule-card on' });
+        const text = el('textarea', { class: 'rule-input', rows: 3 });
+        text.value = RX_RULE.rawFallback || '';
         const why = el('textarea', { class: 'rule-input', rows: 2,
             placeholder: 'Why is that true of him? (the room uses this at the edges)' });
         const verdicts = el('div', { class: 'rk-modes' });
-        let chosen = 'rarely';
+        let chosen = 'usually';
         ['always', 'usually', 'rarely', 'never'].forEach(v => {
-            const b = el('button', { class: 'rk-mode' + (v === chosen ? ' on' : ''),
+            verdicts.appendChild(el('button', {
+                class: 'rk-mode' + (v === chosen ? ' on' : ''),
                 title: (v === 'always' || v === 'never')
                     ? 'A LAW — enforced in code' : 'A LEAN — guidance',
                 onclick: () => {
                     chosen = v;
                     [...verdicts.children].forEach(c => c.classList.toggle('on', c.textContent === v));
-                }}, [v]);
-            verdicts.appendChild(b);
+                }}, [v]));
         });
+        wrap.appendChild(el('div', { class: 'rule-hint',
+            text: "I couldn't work out the triggers, so this saves as a rule that always "
+                + 'applies. You can scope it later from the rules list.' }));
         wrap.appendChild(el('div', { class: 'rk-scope-q', text: 'The rule' }));
         wrap.appendChild(text);
         wrap.appendChild(el('div', { class: 'rk-scope-q', text: 'Why' }));
@@ -4717,26 +5190,29 @@
         wrap.appendChild(el('div', { class: 'rk-scope-q', text: 'How absolute?' }));
         wrap.appendChild(verdicts);
 
-        const foot = $('ruleFoot');
-        foot.appendChild(el('button', { class: 'rule-cancel', onclick: closeRuleDialog }, ['Cancel']));
-        foot.appendChild(el('button', { class: 'rule-save', onclick: async () => {
+        const btns = el('div', { class: 'rk-modes', style: { marginTop: '10px' } });
+        btns.appendChild(el('button', { class: 'rule-save', onclick: () => {
             if (!text.value.trim()) return;
-            await postRules([{
-                rule_text: text.value.trim(), rule_why: why.value.trim(),
-                verdict: chosen, conditions: [],
-            }]);
-        }}, ['Save it']));
+            RX_RULE.rawFallback = '';
+            postRules([{ rule_text: text.value.trim(), rule_why: why.value.trim(),
+                         verdict: chosen, conditions: [] }]);
+        }}, ['Save it as I wrote it']));
+        btns.appendChild(el('button', { class: 'rule-cancel',
+            onclick: () => { RX_RULE.rawFallback = ''; renderRuleDialog(); } }, ['Discard it']));
+        wrap.appendChild(btns);
         return wrap;
     }
 
     async function saveRules() {
-        const rules = [...RX_RULE.picked].map(i => {
-            const p = RX_RULE.proposals[i];
+        const rules = [...RX_RULE.picked].map(uid => {
+            const p = RX_RULE.proposals.find(x => x.uid === uid);
+            if (!p) return null;
             return {
                 rule_text: p.rule_text, rule_why: p.rule_why, verdict: p.verdict,
-                conditions: RX_RULE.scopes[i] || [],
+                conditions: RX_RULE.scopes[uid] || [],
             };
-        });
+        }).filter(Boolean);
+        if (!rules.length) return;
         await postRules(rules);
     }
 
@@ -4750,7 +5226,19 @@
                     feedback_id: RX_RULE.feedbackId, rules,
                 }),
             });
-            if (!r.ok) throw new Error('save failed');
+            // 409 — A LAW WITH NO TRIGGER. It applies on every turn, forever: a `never` here
+            // does not mean "never during a jump scare", it means HE NEVER SPEAKS AGAIN, and
+            // nothing on screen would ever say why. He can still mean it, but he has to mean
+            // it on purpose. Tell him exactly what it does, in his own person's name.
+            if (r.status === 409) {
+                const why = (await r.json().catch(() => ({}))).detail || 'That rule is too broad.';
+                if (!confirm(why + '\n\nSave it anyway?')) return;
+                return postRules(rules.map(x => ({ ...x, confirm_universal_law: true })));
+            }
+            if (!r.ok) {
+                const d = (await r.json().catch(() => ({}))).detail;
+                throw new Error(d || 'save failed');
+            }
             const n = rules.length;
             showToast(`${n} rule${n === 1 ? '' : 's'} saved for ${RX_RULE.kinName}`);
             closeRuleDialog();
@@ -5871,7 +6359,14 @@
             }
         }
 
-        // ── Everyone else: one button, one word ──
+        // ── Everyone else: the SAME three actions ──
+        //
+        // This used to be a single "+ Bring in" button and nothing else — which meant an
+        // absent kin's RULES could not be reached from anywhere in the app. The only two
+        // ways into the rule editor were the in-room 📜 and the dialog's own restore path,
+        // so a rule Tim wrote for Ellen last week became invisible the moment she left the
+        // room. A rule you can't find is a rule you can't delete, and a bad rule you can't
+        // delete is worse than no rule at all — you wrote it, so you'll trust it.
         const away = state.characters.filter(c => !state.room.includes(c.key));
         if (away.length) {
             picker.appendChild(el('div', {
@@ -5879,15 +6374,48 @@
                 text: state.room.length ? 'Not here' : 'Nobody here yet — bring someone in',
             }));
             for (const kin of away) {
+                const key = kin.key;
                 const row = el('div', { class: 'kin-row' });
                 row.appendChild(kinFace(kin, 'msg-avatar'));
                 row.appendChild(el('div', { class: 'kin-row-who' }, [
                     el('div', { class: 'kin-row-name', text: kin.first_name }),
                     el('div', { class: 'kin-row-sub',  text: 'not watching' }),
                 ]));
-                row.appendChild(el('button', {
-                    class: 'kin-add', onclick: () => toggleRoomMember(kin.key),
-                }, ['+ Bring in']));
+
+                const btns = el('div', { class: 'kin-row-btns' });
+
+                // 1. Speak / listen — meaningless until they're in the room, so it says so
+                //    rather than silently doing nothing when tapped.
+                const talk = el('button', {
+                    class: 'kin-act off disabled',
+                    disabled: true,
+                    title: `Bring ${kin.first_name} in first`,
+                });
+                talk.appendChild(el('span', { class: 'a-emoji', text: '👂' }));
+                talk.appendChild(el('span', { text: 'Listening' }));
+                btns.appendChild(talk);
+
+                // 2. Join.
+                const join = el('button', {
+                    class: 'kin-act off',
+                    title: `Bring ${kin.first_name} in to watch`,
+                    onclick: () => toggleRoomMember(key),
+                });
+                join.appendChild(el('span', { class: 'a-emoji', text: '➕' }));
+                join.appendChild(el('span', { text: 'Bring in' }));
+                btns.appendChild(join);
+
+                // 3. Rules — reachable whether or not they're watching.
+                const rulesBtn = el('button', {
+                    class: 'kin-act off',
+                    title: `See and edit the rules you've written for ${kin.first_name}`,
+                    onclick: () => openRulesEditor(key),
+                });
+                rulesBtn.appendChild(el('span', { class: 'a-emoji', text: '📜' }));
+                rulesBtn.appendChild(el('span', { text: 'Rules' }));
+                btns.appendChild(rulesBtn);
+
+                row.appendChild(btns);
                 picker.appendChild(row);
             }
         }
@@ -6626,9 +7154,9 @@
 
     const RX = {
         open: false,
-        mode: 'moment',
+        tab: 'reaction', // 'reaction' | 'quote' | 'song' — the three entry points
         loading: false,
-        draft: null,     // {draft_id, moments[], reads[], emotions{}}
+        draft: null,     // {draft_id, moments[], quotes[], music{}, song, emotions{}}
         moment: null,
         facet: null,
         target: null,
@@ -6636,6 +7164,14 @@
         options: null,   // [{first_person, third_person}]
         aim: null,       // optional: force one kin to the mic
         showAllEmo: false,
+        query: '',       // "what I'm reacting to" — the search box
+        searched: false, // this draft came from a search, not a browse
+        intensity: 2,    // 1 meh · 2 normal · 3 WOW — shapes the sentence
+        intensitySet: false, // he's passed the intensity stage
+        shade: '',       // a nuance the dial can't hold, rides into the sentence
+        steer: '',       // stage-5 refine: steer the sentence rewrite
+        song: null,      // the identified track (Song tab), once looked up
+        songLoading: false,
     };
 
     const FACET_NAMES = {
@@ -6652,16 +7188,20 @@
 
     async function openDrawer() {
         if (!reactAvailable()) return;
-        RX.open = true; RX.mode = 'moment';
+        RX.open = true; RX.tab = 'reaction';
         RX.moment = RX.facet = RX.target = RX.emotion = RX.options = null;
         RX.aim = null; RX.showAllEmo = false;
+        RX.draft = null; RX.query = ''; RX.searched = false;
+        RX.intensity = 2; RX.intensitySet = false; RX.shade = ''; RX.steer = '';
+        RX.song = null; RX.songLoading = false;
         // In theatre it opens as the FULL-WIDTH bottom break-out, so the filmstrip
         // finally gets a screen instead of a 420px rail. Same node, same JS.
         openBottom('react');
         $('drawer').classList.add('open');
         $('drawerScrim').classList.add('open');
-        setDrawerMode('moment');
-        if (!RX.draft) await loadDraft();
+        // Opens on the beats MENU with a search bar on top (setDrawerTab pulls the clip).
+        // One honest wait, then he can type a moment or tap one.
+        setDrawerTab('reaction');
     }
 
     function closeDrawer() {
@@ -6674,11 +7214,23 @@
         RX.draft = null;
     }
 
-    function setDrawerMode(mode) {
-        RX.mode = mode;
+    function setDrawerTab(tab) {
+        RX.tab = tab;
         document.querySelectorAll('.drawer-mode').forEach(b =>
-            b.classList.toggle('active', b.dataset.mode === mode));
+            b.classList.toggle('active', b.dataset.tab === tab));
+        // Switching tabs abandons any half-built reaction — but keeps the loaded
+        // draft (the same clip index serves all three tabs) and the song lookup.
         RX.moment = RX.facet = RX.target = RX.emotion = RX.options = null;
+        RX.intensitySet = false; RX.shade = ''; RX.steer = '';
+        // ALL THREE tabs need the clip index — pull it once on open. Reaction shows the
+        // beats MENU with a search box on top (type to jump to a beat, or tap one); Quote
+        // and Song show their pickers. He wanted the menu AND the box, not one behind the
+        // other.
+        if (!RX.draft && !RX.loading) {
+            RX.query = ''; RX.searched = false;
+            loadDraft();
+            return;
+        }
         renderDrawer();
     }
 
@@ -6689,10 +7241,72 @@
     // which means the newest stretch of film is missing from the strip — i.e. the
     // drawer couldn't show you the thing that made you reach for the phone. That is
     // precisely the failure this whole feature exists to fix. Freshness wins.
+    // MOMENT refine — reword against the SAME cached clip (never a fresh pull, so the beat
+    // stays in the window). Distinct from "search again", which grabs the newest 45s.
+    async function refineSearch(text) {
+        refineWait('finding it in the same clip…');
+        RX.loading = true;
+        try {
+            const res = await fetch('/api/reaction/refine', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ draft_id: RX.draft.draft_id, text }),
+            });
+            if (!res.ok) { const j = await res.json().catch(() => ({}));
+                RX.loading = false; return renderDrawerError(j.detail || 'Refine failed.'); }
+            RX.draft = await res.json();
+            RX.query = text; RX.searched = true;
+            RX.moment = RX.facet = RX.target = null;
+            const m = RX.draft.matched;
+            if (m && m.moment_key) {
+                const moment = (RX.draft.moments || []).find(x => x.key === m.moment_key);
+                if (moment) RX.moment = moment;
+            }
+        } catch (e) { RX.loading = false; return renderDrawerError('Network error on refine.'); }
+        RX.loading = false; renderDrawer();
+    }
+
+    // TARGET refine — "no, his acting" re-derives the things in this beat, steered.
+    async function retarget(text) {
+        refineWait('re-reading the beat…');
+        try {
+            const res = await fetch('/api/reaction/retarget', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ draft_id: RX.draft.draft_id, moment: RX.moment.key, text }),
+            });
+            if (!res.ok) { const j = await res.json().catch(() => ({}));
+                return renderDrawerError(j.detail || 'Retarget failed.'); }
+            RX.moment.targets = (await res.json()).targets || RX.moment.targets;
+            RX.facet = RX.target = null;   // back to the category picker with the new set
+        } catch (e) { return renderDrawerError('Network error re-reading the beat.'); }
+        renderDrawer();
+    }
+
+    // EMOJI refine — "more nervous than scared" re-ranks the feelings for this target.
+    async function reemote(text) {
+        refineWait('re-reading the feeling…');
+        try {
+            const res = await fetch('/api/reaction/reemote', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ draft_id: RX.draft.draft_id,
+                    moment: RX.moment.key, target: RX.target.key, text }),
+            });
+            if (!res.ok) { const j = await res.json().catch(() => ({}));
+                return renderDrawerError(j.detail || 'Re-rank failed.'); }
+            RX.target.emotions = (await res.json()).emotions || RX.target.emotions;
+            RX.showAllEmo = false;
+        } catch (e) { return renderDrawerError('Network error re-reading the feeling.'); }
+        renderDrawer();
+    }
+
     async function loadDraft() {
         RX.loading = true; renderDrawer();
+        const q = RX.query.trim();
         try {
-            const res = await fetch('/api/reaction/draft', { method: 'POST' });
+            const res = await fetch('/api/reaction/draft', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: q }),
+            });
             if (!res.ok) {
                 const j = await res.json().catch(() => ({}));
                 RX.loading = false;
@@ -6707,6 +7321,18 @@
             return;
         }
         RX.loading = false;
+
+        // A SEARCH THAT LANDED skips the browse-and-drill entirely. He described the moment;
+        // Gemini found it and ranked the emotions he's likely feeling; jump straight to the
+        // emoji menu, which is byte-identical to the browse path from here on.
+        // A SEARCH THAT LANDED sets the MOMENT and stops there — he walks the (refinable)
+        // target stage like everyone else, with the thing he described pre-highlighted at the
+        // top of it (renderCats surfaces any `tsearch` target). It no longer jumps to emoji.
+        const m = RX.draft.matched;
+        if (RX.searched && m && m.moment_key) {
+            const moment = (RX.draft.moments || []).find(x => x.key === m.moment_key);
+            if (moment) RX.moment = moment;   // facet/target left null -> the target stage
+        }
         renderDrawer();
     }
 
@@ -6725,14 +7351,36 @@
         b.innerHTML = '';
 
         if (RX.loading) { b.appendChild(renderLoading()); $('drawerTitle').textContent = 'React'; return; }
-        if (RX.mode === 'film')  { $('drawerTitle').textContent = 'The movie so far'; return renderFilmVerdict(b); }
-        if (!RX.draft) return;
-        if (RX.mode === 'read')  { $('drawerTitle').textContent = "I've got a read"; return renderReads(b); }
 
-        if (!RX.moment)  { $('drawerTitle').textContent = 'What are you reacting to?'; return renderBeats(b); }
-        if (!RX.facet)   { $('drawerTitle').textContent = 'What about it?';            return renderCats(b); }
-        if (!RX.target)  { $('drawerTitle').textContent = FACET_NAMES[RX.facet] || 'What about it?'; return renderTargets(b); }
+        // ── PER-TAB ENTRY ── Each tab's job is to seed RX.moment + RX.target. Until
+        // both are chosen, the tab shows its own picker; once they are, all three
+        // tabs converge on the identical emotion → intensity → sentence tail below.
+        if (!RX.moment || !RX.target) {
+            if (RX.tab === 'reaction') {
+                // The clip is pulled on open (setDrawerTab); the loading spinner covers it.
+                if (!RX.draft) return;
+                // A search that found nothing: offer the moments rather than a dead end.
+                if (RX.searched && !RX.moment && !RX.draft.matched) {
+                    $('drawerTitle').textContent = "Couldn't pin that one";
+                    return renderReactNoMatch(b);
+                }
+                if (!RX.moment) { $('drawerTitle').textContent = 'What are you reacting to?'; return renderBeats(b); }
+                if (!RX.facet)  { $('drawerTitle').textContent = 'What about it?';            return renderCats(b); }
+                $('drawerTitle').textContent = FACET_NAMES[RX.facet] || 'What about it?';     return renderTargets(b);
+            }
+            if (RX.tab === 'quote') {
+                if (!RX.draft) return;
+                $('drawerTitle').textContent = 'Pick a line'; return renderQuotes(b);
+            }
+            if (RX.tab === 'song') {
+                if (!RX.draft) return;
+                $('drawerTitle').textContent = 'The music'; return renderSong(b);
+            }
+        }
+
+        // ── SHARED TAIL ── moment + target chosen, whatever the tab.
         if (!RX.emotion) { $('drawerTitle').textContent = 'How did it hit you?';       return renderEmotions(b); }
+        if (!RX.intensitySet) { $('drawerTitle').textContent = 'How hard?';               return renderIntensity(b); }
         $('drawerTitle').textContent = 'Say it';
         return renderSentences(b);
     }
@@ -6793,8 +7441,59 @@
     // doorknob half the time; these are the moments actually worth reacting to.
     // The strip reaches back 45s because the gap between a beat and the tap is
     // large and variable — notice it, decide, pick up the phone, open the drawer.
+    // ─── STEP 0: SEARCH — "what are you reacting to?" ────────────────
+    //
+    // Like the rule editor's box: he types the moment in his own words, it rides into the
+    // same Gemini call as the clip, and comes back pointing at that beat with the emotions
+    // he's likely feeling ranked first — then the emoji menu is identical. Or he browses.
+    function renderReactSearch(b) {
+        b.appendChild(el('div', { class: 'step-label',
+            text: 'describe the moment — I’ll find it and pull the reactions' }));
+        const box = el('textarea', {
+            class: 'react-search',
+            rows: 2,
+            placeholder: 'e.g. when the lights cut out and she froze',
+        });
+        const go = el('button', { class: 'emo-all react-search-go', text: 'Find it →' });
+        const submit = () => {
+            const q = box.value.trim();
+            if (!q) return;
+            RX.query = q; RX.searched = true;
+            loadDraft();
+        };
+        go.onclick = submit;
+        box.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+        });
+        b.appendChild(box);
+        b.appendChild(go);
+
+        // The old front door is still here, one tap away, for when he'd rather scan the strip.
+        const browse = el('button', { class: 'react-browse',
+            text: 'or browse the last 45 seconds ›' });
+        browse.onclick = () => { RX.query = ''; RX.searched = false; loadDraft(); };
+        b.appendChild(browse);
+        setTimeout(() => box.focus(), 30);
+    }
+
+    // The search found nothing that matched his words. Never a dead end — hand him the strip.
+    function renderReactNoMatch(b) {
+        b.appendChild(el('div', { class: 'drawer-error',
+            text: `I couldn't find “${RX.query}” in the last 45 seconds. Here's what I did see —` }));
+        RX.searched = false;   // fall through to the normal browse
+        renderBeats(b);
+        const again = el('button', { class: 'react-browse', text: '‹ search again' });
+        again.onclick = () => { RX.draft = null; RX.query = ''; renderDrawer(); };
+        b.appendChild(again);
+    }
+
     function renderBeats(b) {
-        b.appendChild(el('div', { class: 'step-label', text: 'the last 45 seconds' }));
+        // THE SEARCH BAR, on top of the MENU. Type to jump straight to the beat you mean,
+        // or just tap one below. Both are always here — he asked for the menu AND the box,
+        // not one hidden behind the other.
+        b.appendChild(refineBox("type the moment you're reacting to…", refineSearch));
+        b.appendChild(el('div', { class: 'step-label',
+            text: RX.searched ? 'or pick from the last 45 seconds' : 'the last 45 seconds' }));
         const strip = el('div', { class: 'strip' });
         for (const m of RX.draft.moments) {
             const card = el('button', { class: 'beat', type: 'button' });
@@ -6823,13 +7522,40 @@
     // ─── STEP 2: the category ────────────────────────────────────────
     // An INDEX into the depth, not a filter. Only facets that actually HAVE
     // targets in this beat are shown — you never tap into an empty room.
+    // THE REFINE BOX. Every stage has one: he taps when the suggestion is right, and
+    // types when it isn't. Submitting re-asks the AI, steered by his words.
+    function refineBox(placeholder, onSubmit) {
+        const wrap = el('div', { class: 'refine' });
+        const ta = el('textarea', { class: 'refine-in', rows: 1, placeholder });
+        const go = el('button', { class: 'refine-go', text: '→' });
+        const submit = () => { const v = ta.value.trim(); if (v) onSubmit(v); };
+        go.onclick = submit;
+        ta.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+        });
+        wrap.appendChild(ta); wrap.appendChild(go);
+        return wrap;
+    }
+
+    // A little spinner in the drawer body while a refine re-asks the AI.
+    function refineWait(msg) {
+        $('drawerBody').innerHTML = '';
+        $('drawerBody').appendChild(el('div', { class: 'dl-step active' }, [
+            el('span', { class: 'dl-dot' }), el('span', { text: msg }),
+        ]));
+    }
+
+    // Quote/Song injected targets live on the beats too, but they belong to their
+    // own tabs — hide them from the Reaction tab's category and target lists.
+    function isForeignTarget(t) { return t.key.includes('quote') || t.key === 'song'; }
+
     function renderCats(b) {
         b.appendChild(backBtn('another moment', () => { RX.moment = null; renderDrawer(); }));
         b.appendChild(anchorEl());
         b.appendChild(el('div', { class: 'step-label', text: 'what about it?' }));
         const counts = {};
         for (const t of RX.moment.targets) {
-            if (t.key.endsWith('tall')) continue;
+            if (t.key.endsWith('tall') || isForeignTarget(t)) continue;
             counts[t.facet] = (counts[t.facet] || 0) + 1;
         }
         const cats = el('div', { class: 'cats' });
@@ -6842,6 +7568,16 @@
         }
         b.appendChild(cats);
 
+        // If a SEARCH landed, the thing he described is a `tsearch` target — surface it
+        // pre-highlighted at the top so he can take it in one tap, or ignore it and browse.
+        const found = RX.moment.targets.find(t => t.key.endsWith('tsearch'));
+        if (found) {
+            const p = el('button', { class: 'pick catchall found', type: 'button',
+                text: '✓ ' + found.label });
+            p.onclick = () => { RX.facet = found.facet; RX.target = found; renderDrawer(); };
+            b.insertBefore(p, b.querySelector('.cats'));
+        }
+
         // The catch-all lives here so you're never stuck when none of the named
         // targets is the thing you meant.
         const all = RX.moment.targets.find(t => t.key.endsWith('tall'));
@@ -6851,6 +7587,8 @@
             p.onclick = () => { RX.facet = '*'; RX.target = all; renderDrawer(); };
             b.appendChild(p);
         }
+
+        b.appendChild(refineBox("no — the thing you actually mean…", retarget));
     }
 
     // ─── STEP 3: the target ──────────────────────────────────────────
@@ -6860,12 +7598,13 @@
         b.appendChild(el('div', { class: 'step-label', text: FACET_NAMES[RX.facet] || RX.facet }));
         const picks = el('div', { class: 'picks' });
         for (const t of RX.moment.targets) {
-            if (t.facet !== RX.facet || t.key.endsWith('tall')) continue;
+            if (t.facet !== RX.facet || t.key.endsWith('tall') || isForeignTarget(t)) continue;
             const p = el('button', { class: 'pick', type: 'button', text: t.label });
             p.onclick = () => { RX.target = t; renderDrawer(); };
             picks.appendChild(p);
         }
         b.appendChild(picks);
+        b.appendChild(refineBox("no — the thing you actually mean…", retarget));
     }
 
     // ─── STEP 4: the emoji ───────────────────────────────────────────
@@ -6873,7 +7612,10 @@
     // beat and you get admiration, not fear — that only works because target
     // comes before emotion, and it's the entire payoff of that ordering.
     function renderEmotions(b) {
-        b.appendChild(backBtn('another target', () => { RX.target = null; RX.showAllEmo = false; renderDrawer(); }));
+        // Back to the categories — always valid, whether he browsed or searched here.
+        b.appendChild(backBtn('what about it', () => {
+            RX.target = null; RX.facet = null; RX.showAllEmo = false; renderDrawer();
+        }));
         b.appendChild(anchorEl());
 
         const cat = RX.draft.emotions;
@@ -6890,7 +7632,7 @@
                 btn.appendChild(el('span', { class: 'emo-e', text: e.emoji }));
                 btn.appendChild(el('span', { class: 'emo-l', text: e.label }));
                 btn.title = e.label;
-                btn.onclick = () => { RX.emotion = e.key; loadSentences(); };
+                btn.onclick = () => { RX.emotion = e.key; renderDrawer(); };
                 g.appendChild(btn);
             }
             return g;
@@ -6904,7 +7646,7 @@
 
         const ranked = (RX.target.emotions || []).map(k => byKey[k]).filter(Boolean);
         if (ranked.length) {
-            b.appendChild(el('div', { class: 'emo-sep', text: 'or, more precisely' }));
+            b.appendChild(el('div', { class: 'emo-sep', text: 'how it hit you' }));
             b.appendChild(grid(ranked));
         }
 
@@ -6925,6 +7667,40 @@
                 b.appendChild(grid(g.emotions.map(e => ({ ...e, color: g.color }))));
             }
         }
+
+        b.appendChild(refineBox("not these — how it really felt…", reemote));
+    }
+
+    // ─── STEP 4 (new): the intensity ─────────────────────────────────
+    // A laugh is not one thing. Three levels — meh · normal · WOW — plus a shade box for
+    // a nuance the dial can't hold. It steers the SENTENCE, which is what the room hears.
+    function renderIntensity(b) {
+        b.appendChild(backBtn('another feeling', () => { RX.emotion = null; renderDrawer(); }));
+        b.appendChild(anchorEl());
+        b.appendChild(el('div', { class: 'step-label', text: 'how hard did it hit?' }));
+
+        const row = el('div', { class: 'intensity' });
+        [[1, 'meh'], [2, 'normal'], [3, 'WOW']].forEach(([lvl, label]) => {
+            const chip = el('button', {
+                class: 'int-chip' + (RX.intensity === lvl ? ' on' : '') + (lvl === 3 ? ' wow' : ''),
+                type: 'button', text: label,
+            });
+            chip.onclick = () => { RX.intensity = lvl; renderDrawer(); };
+            row.appendChild(chip);
+        });
+        b.appendChild(row);
+
+        // The shade box: a mood the dial misses. Stored, not re-fetched — it rides into the
+        // sentence when he moves on.
+        const shade = el('textarea', { class: 'refine-in shade-in', rows: 1,
+            placeholder: 'a shade the dial misses — "more nervous than glad"' });
+        shade.value = RX.shade || '';
+        shade.addEventListener('input', () => { RX.shade = shade.value; });
+        b.appendChild(shade);
+
+        const next = el('button', { class: 'refine-go int-next', text: 'next →' });
+        next.onclick = () => { RX.intensitySet = true; loadSentences(); };
+        b.appendChild(next);
     }
 
     // ─── STEP 5: the sentence ────────────────────────────────────────
@@ -6944,6 +7720,9 @@
                     moment: RX.moment.key,
                     target: RX.target.key,
                     emotion: RX.emotion,
+                    intensity: RX.intensity,
+                    shade: RX.shade,
+                    steer: RX.steer,
                 }),
             });
             if (!res.ok) {
@@ -6959,8 +7738,8 @@
     }
 
     function renderSentences(b) {
-        b.appendChild(backBtn('another feeling', () => {
-            RX.emotion = null; RX.options = null; renderDrawer();
+        b.appendChild(backBtn('how hard', () => {
+            RX.intensitySet = false; RX.options = null; RX.steer = ''; renderDrawer();
         }));
         b.appendChild(anchorEl());
         b.appendChild(el('div', { class: 'step-label', text: 'pick the one that’s true' }));
@@ -6978,6 +7757,11 @@
         own.onclick = () => renderOwnWords(b);
         picks.appendChild(own);
         b.appendChild(picks);
+
+        // Steer the rewrite — none of these quite right, tell it what to change.
+        b.appendChild(refineBox("none quite right — steer me…", (v) => {
+            RX.steer = v; loadSentences();
+        }));
 
         b.appendChild(aimRow());
     }
@@ -7030,6 +7814,8 @@
             first_person: firstPerson,
             third_person: thirdPerson,
             aim_at: RX.aim,
+            intensity: RX.intensity,
+            shade: RX.shade,
         };
         closeDrawer();
         try {
@@ -7043,63 +7829,102 @@
         }
     }
 
-    // ─── Mode: "I've got a read" ─────────────────────────────────────
-    // 👀 "he's lying about the diner" / 🤔 "wait, what just happened" were never
-    // reactions — they're predictions and questions, which is part of why they
-    // were unusable sitting in a bar of feelings. Now you TAP one instead of
-    // typing it while high.
-    function renderReads(b) {
-        const reads = RX.draft.reads || [];
-        if (!reads.length) {
+    // ─── Tab: Quote ──────────────────────────────────────────────────
+    // The lines Gemini HEARD in the last 45 seconds, each already carrying a
+    // `writing` target injected on its beat. Pick one and it rides the identical
+    // emotion → intensity → sentence tail. No dialogue (e.g. All Is Lost) → nothing
+    // to react to, and we say so rather than showing an empty list.
+    function renderQuotes(b) {
+        const quotes = (RX.draft && RX.draft.quotes) || [];
+        if (!quotes.length) {
             b.appendChild(el('div', { class: 'drawer-error',
-                text: 'Nothing to call yet — the last 45 seconds didn’t give me a read.' }));
+                text: 'No dialogue in the last 45 seconds — nothing to quote here.' }));
             return;
         }
-        b.appendChild(el('div', { class: 'step-label', text: 'call it' }));
-        const picks = el('div', { class: 'picks' });
-        for (const r of reads) {
-            const p = el('button', { class: 'pick', type: 'button', text: r.label });
-            p.onclick = async () => {
-                // A read is a claim, not a feeling: it goes through the composer as
-                // Tim's own words, so it reaches the room as speech rather than as
-                // narrated body language.
-                const ta = $('messageInput');
-                closeDrawer();
-                if (ta) { ta.value = r.label; ta.focus(); updateCharCounter && updateCharCounter(); }
+        b.appendChild(el('div', { class: 'step-label', text: 'pick a line' }));
+        const list = el('div', { class: 'quotes' });
+        for (const q of quotes) {
+            const row = el('button', { class: 'quote', type: 'button' });
+            row.appendChild(el('div', { class: 'quote-line', text: '“' + q.text + '”' }));
+            const who = [];
+            if (q.speaker) who.push(q.speaker);
+            if (q.moment_caption) who.push(q.moment_caption);
+            if (who.length) row.appendChild(el('div', { class: 'quote-who', text: who.join(' · ') }));
+            row.onclick = () => {
+                const m = RX.draft.moments.find(x => x.key === q.moment_key);
+                if (!m) return;
+                const t = m.targets.find(x => x.key === q.target_key);
+                if (!t) return;
+                RX.moment = m; RX.target = t; renderDrawer();
             };
-            picks.appendChild(p);
+            list.appendChild(row);
         }
-        b.appendChild(picks);
+        b.appendChild(list);
     }
 
-    // ─── Mode: "the movie so far" ────────────────────────────────────
-    // A verdict on the FILM, not on a moment. It was only ever confusing because
-    // it sat next to the moment reactions pretending to be one of them.
-    function renderFilmVerdict(b) {
-        b.appendChild(el('div', { class: 'step-label', text: 'the film, so far' }));
-        const grid = el('div', { class: 'emo-grid' });
-        const VERDICTS = [
-            ['loved_it', '🤩', 'Loved it'], ['liked_it', '👍', 'Liked it'],
-            ['disliked_it', '👎', "Didn't like it"], ['hated_it', '🤮', 'Hated it'],
-        ];
-        for (const [key, emoji, label] of VERDICTS) {
-            const btn = el('button', { class: 'emo', type: 'button' });
-            btn.appendChild(el('span', { class: 'emo-e', text: emoji }));
-            btn.appendChild(el('span', { class: 'emo-l', text: label }));
-            btn.title = label;
-            btn.onclick = async () => {
-                closeDrawer();
-                try {
-                    await fetch('/api/reaction/film', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ emoji, label }),
-                    });
-                } catch (e) { console.error('verdict failed', e); }
-            };
-            grid.appendChild(btn);
+    // ─── Tab: Song ───────────────────────────────────────────────────
+    // reaction_draft already HEARD the clip and told us whether music is playing.
+    // Opening this tab fires ONE grounded lookup to name the track (cached on the
+    // draft, so re-opening is free), shows a rich card, and "React to this" drops
+    // into the normal flow via a `sound` target injected server-side.
+    function renderSong(b) {
+        const music = (RX.draft && RX.draft.music) || {};
+        if (!music.playing) {
+            b.appendChild(el('div', { class: 'drawer-error',
+                text: 'No music playing right now — nothing to react to.' }));
+            return;
         }
-        b.appendChild(grid);
+        if (RX.songLoading) {
+            b.appendChild(el('div', { class: 'song-wait', text: 'Identifying the track…' }));
+            return;
+        }
+        if (!RX.song) { loadSong(); b.appendChild(el('div', { class: 'song-wait', text: 'Identifying the track…' })); return; }
+        if (!RX.song.found) {
+            b.appendChild(el('div', { class: 'drawer-error',
+                text: "Couldn't pin down the track from what's playing." }));
+            if (music.cue) b.appendChild(el('div', { class: 'song-cue', text: '“' + music.cue + '”' }));
+            const retry = el('button', { class: 'emo-all', text: '↻ try again' });
+            retry.onclick = () => { RX.song = null; renderDrawer(); };
+            b.appendChild(retry);
+            return;
+        }
+        const c = RX.song.card || {};
+        const card = el('div', { class: 'song-card' });
+        card.appendChild(el('div', { class: 'song-title', text: c.title || 'Unknown track' }));
+        if (c.artist) card.appendChild(el('div', { class: 'song-artist', text: c.artist }));
+        const meta = [c.album, c.year].filter(Boolean).join(' · ');
+        if (meta) card.appendChild(el('div', { class: 'song-meta', text: meta }));
+        if (c.note) card.appendChild(el('div', { class: 'song-note', text: c.note }));
+        if (c.source) card.appendChild(el('div', { class: 'song-src', text: 'via ' + c.source }));
+        b.appendChild(card);
+
+        const react = el('button', { class: 'emo-all song-react', text: 'React to this →' });
+        react.onclick = () => {
+            const m = RX.draft.moments.find(x => x.key === RX.song.moment_key)
+                   || RX.draft.moments[RX.draft.moments.length - 1];
+            if (!m) return;
+            RX.moment = m; RX.target = RX.song.target; renderDrawer();
+        };
+        b.appendChild(react);
+    }
+
+    async function loadSong() {
+        // No renderDrawer here — renderSong fired us mid-render and already shows the
+        // loading state. Re-rendering now would duplicate it. We render on completion.
+        RX.songLoading = true;
+        try {
+            const res = await fetch('/api/reaction/song', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ draft_id: RX.draft.draft_id }),
+            });
+            RX.song = res.ok ? await res.json() : { found: false };
+        } catch (e) {
+            console.error('song id failed', e);
+            RX.song = { found: false };
+        }
+        RX.songLoading = false;
+        renderDrawer();
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -8161,6 +8986,12 @@
         }, 20000);
 
         loadMoodArt();   // custom art, if any exists on disk
+        // ASK THE MOMENT WE START GUESSING. Plex reports several sessions and the app has to
+        // pick one; when it genuinely can't tell, being quietly wrong costs an entire evening
+        // of silence, so it asks instead. Checked at boot and on a slow tick — it only ever
+        // opens once per distinct pair, so it can't nag.
+        checkPlexAmbiguity();
+        setInterval(checkPlexAmbiguity, 20000);
 
         connectWS();
     });

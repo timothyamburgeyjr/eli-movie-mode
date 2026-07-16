@@ -452,3 +452,33 @@ def prompt_vocabulary() -> str:
 
 
 VALID_EMOTION_KEYS: list[str] = [e.key for e in ALL]
+
+
+# ─── Intensity ────────────────────────────────────────────────────────
+#
+# A laugh is not one thing. A polite huff and a belly laugh are the same EMOTION at
+# different strengths, and until now the app flattened them to one flat "Cracking up".
+# Three levels, not five — five gives "stoned me paralysis" (Tim's words). The level
+# steers the SENTENCE the room actually hears: at `meh` the model writes small and
+# private, at `WOW` it writes big and physical.
+#
+# `normal` (level 2) is the default and, when nothing else is dialed, produces a prompt
+# byte-identical to the old one — so it cannot regress the common path.
+INTENSITY: list[dict] = [
+    {"level": 1, "key": "meh", "label": "meh",
+     "hint": "barely — a flicker, mostly kept inside"},
+    {"level": 2, "key": "normal", "label": "normal",
+     "hint": "a normal, honest amount"},
+    {"level": 3, "key": "wow", "label": "WOW",
+     "hint": "all the way — big, physical, no restraint"},
+]
+INTENSITY_BY_LEVEL: dict[int, dict] = {i["level"]: i for i in INTENSITY}
+
+
+def intensity(level: int) -> dict:
+    """The intensity row for a level, clamped to 1-3, defaulting to normal."""
+    try:
+        lv = int(level)
+    except (TypeError, ValueError):
+        lv = 2
+    return INTENSITY_BY_LEVEL.get(max(1, min(3, lv)), INTENSITY_BY_LEVEL[2])

@@ -273,6 +273,17 @@ might react to. The viewer will pick one beat, then one thing, then how they fel
    out loud — the cut, the lens, a background performance, a colour shift, silence
    where you expected a sting.
 
+3. ALWAYS OFFER THE CAST AND THE STORY. Every moment MUST include:
+     • a target for EACH character clearly on screen — named, concrete, about what
+       they are DOING ("the flat way Jonah Hill signs without looking up", not
+       "Jonah Hill's performance"). This is the `character`/`performance` facet.
+     • one target for the STORY BEAT itself — what just happened in the plot, the
+       thing that moved ("he realises the queue is for someone else"). The `story`
+       facet.
+   The viewer opens a "cast" and a "story" category expecting them full; never leave
+   them empty. The other facets (sound, cinematography, production…) are populated
+   only when the clip actually gives you something for them.
+
 ── THE FACETS ──
 {facets}
 
@@ -308,6 +319,20 @@ just an instant.
 Also return 0-4 `reads`: predictions or suspicions the viewer might voice
 ("he's lying about the diner", "she's already dead"). These are claims, not feelings.
 Empty list if the window supports none.
+
+── QUOTES ──
+Return `quotes`: the memorable spoken lines you can HEAR in this clip, verbatim, up
+to 6. Attribute each to a `speaker` (character name if you can, else a plain
+descriptor, else empty) and to the beat it lands in (`moment_offset_ms`). Rank the
+emotion keys a viewer might feel about the LINE. If NO ONE speaks in the clip (a
+wordless scene), return an empty list — do not invent dialogue.
+
+── MUSIC ──
+Fill `music`. Set `playing` true ONLY if actual music (a score cue or a song) is
+audibly playing — not ambient room tone or sound design. When it is, describe what
+you hear in `cue`: instrumentation, whether it's vocal or instrumental, tempo and
+mood, and any lyrics you can catch — enough that the track could be identified from
+your description. If there's no music, set playing false and leave `cue` empty.
 
 Write captions and targets in plain, spoken English. No film-school register."""
 
@@ -1784,6 +1809,7 @@ Return ONLY the JSON object, nothing else.
         movie_context: str = "",
         session_history: str = "",
         media_resolution: str = "low",
+        reacting_to: str = "",
     ) -> dict[str, Any]:
         """ONE call. One clip. Everything the drawer needs.
 
@@ -1926,9 +1952,64 @@ Return ONLY the JSON object, nothing else.
                             "required": ["label", "hedge"],
                         },
                     },
+                    # Spoken lines HEARD in the clip — the Quote tab. Flat, per the
+                    # landmine note: no enums or bounds nested here.
+                    "quotes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string", "description": "The line, verbatim, as spoken."},
+                                "speaker": {"type": "string", "description": "Who says it — character name if identifiable, else a plain descriptor ('the woman at the desk'), else empty."},
+                                "moment_offset_ms": {"type": "integer", "description": "offset_ms of the beat this line lands in."},
+                                "emotions": {"type": "array", "items": {"type": "string"}, "description": "Emotion KEYS a viewer might feel about this LINE, ranked, most likely first. Keys only."},
+                            },
+                            "required": ["text", "speaker", "moment_offset_ms", "emotions"],
+                        },
+                    },
+                    # Is music audibly playing, and what does it sound like — the Song
+                    # tab. `cue` is what feeds the grounded track-ID lookup later.
+                    "music": {
+                        "type": "object",
+                        "properties": {
+                            "playing": {"type": "boolean", "description": "True only if MUSIC (score or a song) is audibly playing — not mere ambient/sound design."},
+                            "cue": {"type": "string", "description": "What you HEAR: instrumentation, vocal or instrumental, tempo/mood, and any lyrics you can make out — enough for someone to identify the track. Empty if not playing."},
+                        },
+                        "required": ["playing", "cue"],
+                    },
                 },
-                "required": ["scene_description", "mood", "moments", "reads"],
+                "required": ["scene_description", "mood", "moments", "reads", "quotes", "music"],
             }
+
+            # SEARCH MODE. When Tim typed WHAT he's reacting to, the clip goes to Gemini
+            # exactly as before — but now his words go with it, and it points back at the
+            # one moment he meant plus the emotions he's likely feeling. The schema only
+            # grows in this branch, so the browse path stays byte-identical.
+            if reacting_to.strip():
+                schema["properties"]["match"] = {
+                    "type": "object",
+                    "properties": {
+                        "found": {"type": "boolean"},
+                        "moment_offset_ms": {
+                            "type": "integer",
+                            "description": "offset_ms of the moment the viewer described.",
+                        },
+                        "summary": {
+                            "type": "string",
+                            "description": "One plain line naming that moment, echoing their "
+                                           "words — shown back to them as 'found it'.",
+                        },
+                        "emotions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Emotion KEYS the viewer is most likely feeling "
+                                           "about what they described, ranked, most likely "
+                                           "first. Keys only.",
+                        },
+                    },
+                    "required": ["found", "moment_offset_ms", "summary", "emotions"],
+                }
+                schema["required"].append("match")
 
             system_prompt = REACTION_DRAFT_SYSTEM_PROMPT.format(facets=_FACET_HINTS)
 
@@ -1942,6 +2023,16 @@ Return ONLY the JSON object, nothing else.
                     "\nEarlier in this session — USE THIS for `callback` and `theme` "
                     "targets, which the clip alone cannot see:\n"
                     f"{session_history.strip()[:1500]}"
+                )
+            if reacting_to.strip():
+                parts.append(
+                    "\nTHE VIEWER IS REACTING TO SOMETHING SPECIFIC. In their words:\n"
+                    f'  "{reacting_to.strip()[:300]}"\n'
+                    "Find the exact moment in the clip they mean. Fill `match`: the moment's "
+                    "offset_ms, a one-line summary echoing their words, and the emotion keys "
+                    "they are most likely feeling about it, ranked. If their words genuinely "
+                    "match nothing in the clip, set found=false — do not force it onto the "
+                    "nearest beat."
                 )
             parts.append(
                 "\nEmotion vocabulary — return KEYS from this list only:\n"
@@ -2034,23 +2125,182 @@ Return ONLY the JSON object, nothing else.
                 })
             moments.sort(key=lambda m: m["offset_ms"])
 
+            # THE SEARCH RESULT. Point at the moment Tim described, and put the emotions he's
+            # likely feeling FIRST on it — as a synthetic target, so the drawer's emoji step
+            # renders it with no new code. Nearest-offset match survives the sort above.
+            matched = None
+            if reacting_to.strip():
+                mt = parsed.get("match") or {}
+                if mt.get("found") and moments:
+                    want = 0
+                    try:
+                        want = int(mt.get("moment_offset_ms") or 0)
+                    except (TypeError, ValueError):
+                        want = moments[0]["offset_ms"]
+                    best = min(moments, key=lambda m: abs(m["offset_ms"] - want))
+                    keys = [k for k in (mt.get("emotions") or []) if k in emotions.BY_KEY][:8]
+                    search_t = {
+                        "key": best["key"] + "tsearch",
+                        "label": (mt.get("summary") or "what you described").strip()[:90],
+                        "facet": "story",
+                        "note": reacting_to.strip()[:180],
+                        "emotions": keys,
+                    }
+                    best["targets"].insert(0, search_t)
+                    matched = {
+                        "moment_key": best["key"],
+                        "target_key": search_t["key"],
+                        "summary": search_t["label"],
+                    }
+
             reads = [
                 {"label": r["label"].strip()[:110], "hedge": (r.get("hedge") or "").strip()[:40]}
                 for r in (parsed.get("reads") or [])[:4]
                 if (r.get("label") or "").strip()
             ]
 
+            # QUOTES → the Quote tab. Each heard line becomes a synthetic `writing`
+            # target injected into its nearest beat, so reacting to a quote rides the
+            # exact same rails as any target (the tsearch trick, once per line).
+            quotes: list[dict[str, Any]] = []
+            for q in (parsed.get("quotes") or [])[:6]:
+                text = (q.get("text") or "").strip()[:240]
+                if not text or not moments:
+                    continue
+                speaker = (q.get("speaker") or "").strip()[:60]
+                try:
+                    want = int(q.get("moment_offset_ms") or 0)
+                except (TypeError, ValueError):
+                    want = moments[0]["offset_ms"]
+                beat = min(moments, key=lambda m: abs(m["offset_ms"] - want))
+                keys = [k for k in (q.get("emotions") or []) if k in emotions.BY_KEY][:6]
+                tkey = f"{beat['key']}quote{len(quotes)}"
+                who = speaker or "someone off screen"
+                beat["targets"].append({
+                    "key": tkey,
+                    "label": f'"{text}"'[:90],
+                    "facet": "writing",
+                    "note": f'Spoken by {who}: "{text}"'[:180],
+                    "emotions": keys,
+                })
+                quotes.append({
+                    "text": text,
+                    "speaker": speaker,
+                    "moment_key": beat["key"],
+                    "target_key": tkey,
+                })
+
+            m = parsed.get("music") or {}
+            music = {
+                "playing": bool(m.get("playing")),
+                "cue": (m.get("cue") or "").strip()[:400],
+            }
+
             return {
                 "scene_description": (parsed.get("scene_description") or "").strip()[:1600],
                 "mood": mood,
                 "moments": moments,
                 "reads": reads,
+                "quotes": quotes,
+                "music": music,
+                # None on the browse path or when his words matched nothing.
+                "matched": matched,
                 "latency_ms": int((perf_counter() - start) * 1000),
                 "usage": usage,
             }
         finally:
             if uploaded is not None:
                 await self._delete_file(uploaded)
+
+    # ─── Song tab: name the track that reaction_draft heard ─────
+    async def identify_song(
+        self,
+        *,
+        movie_title: str = "",
+        movie_context: str = "",
+        cue: str = "",
+        timestamp_label: str = "",
+    ) -> dict[str, Any]:
+        """Grounded, TEXT-only track lookup for the Song tab.
+
+        `reaction_draft` already HEARD the clip and wrote `cue` (a plain description
+        of the music). This turns that description + the film into a named track via
+        Google Search — the two-stage split exists because grounded calls in this
+        codebase cannot also carry a response_schema (see generate_scene_topics),
+        and because pairing audio with grounding is untried here. So we ground on
+        words, not on the clip.
+
+        Returns {found, title, artist, album, year, note, source, emotions[]}.
+        """
+        self._ensure_client()
+        start = perf_counter()
+
+        title_str = movie_title or "the film"
+        if timestamp_label:
+            title_str += f" (around {timestamp_label})"
+        ctx = f"\nWhat the film is:\n{movie_context.strip()[:800]}" if movie_context.strip() else ""
+
+        prompt = f"""A viewer is watching {title_str} and wants to know what song or score cue is playing right now.{ctx}
+
+Here is what can be heard, described by someone listening to the scene:
+"{cue.strip()[:400]}"
+
+Use Google Search to identify the actual track. Prefer a real, verifiable soundtrack/needle-drop for THIS film and this moment over a guess. If the description is too vague to name a specific track with reasonable confidence, set found=false — do NOT fabricate a title.
+
+Output STRICT JSON only, no markdown fences, exactly this shape:
+{{
+  "found": <true only if you can name a real track with reasonable confidence>,
+  "title": "<track title>",
+  "artist": "<performing artist or, for score, the composer>",
+  "album": "<album or soundtrack name, or empty>",
+  "year": "<release year, or empty>",
+  "note": "<one line: where/why it's used in this film, or what it is>",
+  "source": "<the site your identification rests on, e.g. 'Tunefind', 'IMDb soundtrack'>",
+  "emotions": ["<emotion keys a viewer might feel about this track, ranked; keys only, from the list below>"]
+}}
+
+Emotion keys — return ONLY keys from this list:
+{emotions.prompt_vocabulary()}
+
+Return ONLY the JSON object, nothing else.
+"""
+        config = types.GenerateContentConfig(
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+            temperature=0.3,
+        )
+        response = await self._call_with_retry(
+            [prompt], config, "identify_song", model="gemini-2.5-flash",
+        )
+        usage = await self._track_call(
+            response, call_type="identify_song", model="gemini-2.5-flash", grounded=True,
+        )
+
+        raw = (response.text or "").strip()
+        card: dict[str, Any] = {
+            "found": False, "title": "", "artist": "", "album": "",
+            "year": "", "note": "", "source": "", "emotions": [],
+        }
+        try:
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip()
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict) and parsed.get("found") and (parsed.get("title") or "").strip():
+                keys = [k for k in (parsed.get("emotions") or []) if k in emotions.BY_KEY][:6]
+                card = {
+                    "found": True,
+                    "title": str(parsed.get("title") or "").strip()[:120],
+                    "artist": str(parsed.get("artist") or "").strip()[:120],
+                    "album": str(parsed.get("album") or "").strip()[:120],
+                    "year": str(parsed.get("year") or "").strip()[:12],
+                    "note": str(parsed.get("note") or "").strip()[:200],
+                    "source": str(parsed.get("source") or "").strip()[:80],
+                    "emotions": keys,
+                }
+        except (json.JSONDecodeError, TypeError, ValueError):
+            log.warning("identify_song: failed to parse JSON — returning found=false")
+
+        card["latency_ms"] = int((perf_counter() - start) * 1000)
+        card["usage"] = usage
+        return card
 
     # ─── Reaction drawer: the finished sentences ────────────────
     async def reaction_sentences(
@@ -2066,6 +2316,9 @@ Return ONLY the JSON object, nothing else.
         movie_title: str = "",
         subject: str = "Tim",
         n: int = 5,
+        intensity: int = 2,
+        shade: str = "",
+        steer: str = "",
     ) -> dict[str, Any]:
         """The one mid-wizard call. Text only — the clip was already read by
         `reaction_draft`, so this is cheap (~$0.0003) and fast.
@@ -2120,10 +2373,28 @@ Return ONLY the JSON object, nothing else.
         if target_note:
             lines.append(f"  ({target_note})")
         lines.append(f"\nHow it hit him: {emo_label}")
-        lines.append(
-            f"\nWrite {n} ways {subject} might say this. Vary the manner — big and "
-            f"physical, small and private, out loud, almost nothing."
-        )
+
+        # INTENSITY. At `normal` (level 2) with no shade/steer, the two blocks below add
+        # nothing and the prompt is byte-identical to before — the common path can't regress.
+        # At meh/WOW the "vary the manner" instruction is REPLACED by a fixed strength, so
+        # all N options come back at the level he dialed.
+        intn = emotions.intensity(intensity)
+        if intn["level"] != 2:
+            lines.append(
+                f"\nHow HARD it hit him: {intn['label']} — {intn['hint']}. "
+                f"Write ALL {n} at THIS strength; do not vary the intensity."
+            )
+        else:
+            lines.append(
+                f"\nWrite {n} ways {subject} might say this. Vary the manner — big and "
+                f"physical, small and private, out loud, almost nothing."
+            )
+        if shade.strip():
+            lines.append(f"\nA shade he wants kept, under it all: {shade.strip()[:160]}.")
+        if steer.strip():
+            lines.append(
+                f"\nThe first set missed. Steer the rewrite: {steer.strip()[:200]}."
+            )
 
         config = types.GenerateContentConfig(
             system_instruction=REACTION_SENTENCES_SYSTEM_PROMPT.format(n=n, subject=subject),
@@ -2172,6 +2443,141 @@ Return ONLY the JSON object, nothing else.
             "latency_ms": int((perf_counter() - start) * 1000),
             "usage": usage,
         }
+
+    # ─── Reaction drawer: the mid-wizard steers ─────────────────
+    #
+    # Text-only, cheap (~$0.0003, ~1-2s). The clip was already read once by
+    # reaction_draft; these re-derive ONE stage against the scene it already knows,
+    # steered by what Tim typed in that stage's refine box. He taps when the
+    # suggestion is right; he types when it isn't.
+
+    async def reaction_retarget(
+        self,
+        *,
+        scene_description: str,
+        moment_caption: str,
+        moment_why: str,
+        steer: str,
+        movie_title: str = "",
+    ) -> list[dict[str, Any]]:
+        """Re-derive the THINGS worth reacting to in one beat, steered by his words.
+
+        "No — Jonah Hill's timing" → targets focused on the performance, with the
+        emotions ranked for each. Same shape as a draft moment's targets.
+        """
+        self._ensure_client()
+        target_schema = {
+            "type": "object",
+            "properties": {
+                "label": {"type": "string"},
+                "facet": {"type": "string", "enum": list(REACTION_FACETS)},
+                "note": {"type": "string"},
+                "emotions": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["label", "facet", "note", "emotions"],
+        }
+        schema = {
+            "type": "object",
+            "properties": {"targets": {"type": "array", "items": target_schema}},
+            "required": ["targets"],
+        }
+
+        lines = []
+        if movie_title:
+            lines.append(f"Movie: {movie_title}")
+        lines.append(f"What's on screen: {scene_description[:700]}")
+        lines.append(f"\nThe beat: {moment_caption}")
+        if moment_why:
+            lines.append(f"  ({moment_why})")
+        lines.append(
+            f"\nThe viewer said what he's reacting to IS: \"{steer.strip()[:200]}\"\n"
+            "Give 3-6 concrete THINGS on screen in this beat that match what he means, "
+            "each a thing that ACTUALLY HAPPENS in plain words (not a topic), spanning "
+            "the facets his words imply. ALWAYS include the characters he might mean, "
+            "named, and the story beat. For each, rank 4-6 emotion KEYS he might feel "
+            "about THAT thing, most likely first.\n\n"
+            "Emotion vocabulary — return KEYS from this list only:\n"
+            + emotions.prompt_vocabulary()
+        )
+
+        config = types.GenerateContentConfig(
+            system_instruction="You re-index one beat of a film to the thing the viewer "
+                               "says he's reacting to. Concrete things on screen, plain "
+                               "spoken English, never film-school register.",
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=0.7,
+            max_output_tokens=2048,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        )
+        response = await self._call_with_retry(
+            ["\n".join(lines)], config, "reaction_retarget", model=self.text_model,
+        )
+        await self._track_call(
+            response, call_type="reaction_retarget", model=self.text_model, grounded=False,
+        )
+        try:
+            parsed = json.loads((response.text or "").strip())
+        except json.JSONDecodeError as e:
+            raise GeminiError(f"retarget returned non-JSON: {(response.text or '')[:200]}") from e
+
+        out = []
+        for t in (parsed.get("targets") or [])[:6]:
+            facet = (t.get("facet") or "").strip()
+            label = (t.get("label") or "").strip()
+            if not label or facet not in REACTION_FACETS:
+                continue
+            keys = [k for k in (t.get("emotions") or []) if k in emotions.BY_KEY][:6]
+            out.append({
+                "label": label[:90], "facet": facet,
+                "note": (t.get("note") or "").strip()[:180], "emotions": keys,
+            })
+        return out
+
+    async def reaction_reemote(
+        self,
+        *,
+        scene_description: str,
+        moment_caption: str,
+        target_label: str,
+        target_facet: str,
+        steer: str,
+    ) -> list[str]:
+        """Re-rank the emotions for one target, steered by his words. Keys only."""
+        self._ensure_client()
+        schema = {
+            "type": "object",
+            "properties": {"emotions": {"type": "array", "items": {"type": "string"}}},
+            "required": ["emotions"],
+        }
+        prompt = (
+            f"What's on screen: {scene_description[:600]}\n"
+            f"The beat: {moment_caption}\n"
+            f"He's reacting to: {target_label}  [{target_facet}]\n"
+            f"He says the feeling is more like: \"{steer.strip()[:200]}\"\n\n"
+            "Rank 5-8 emotion KEYS he might plausibly feel, closest to what he said FIRST. "
+            "Keys only, from this list:\n" + emotions.prompt_vocabulary()
+        )
+        config = types.GenerateContentConfig(
+            system_instruction="You rank how a viewer feels about one thing on screen, "
+                               "steered by their own words. Return emotion keys only.",
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=0.6,
+            max_output_tokens=1024,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        )
+        response = await self._call_with_retry(
+            [prompt], config, "reaction_reemote", model=self.text_model,
+        )
+        await self._track_call(
+            response, call_type="reaction_reemote", model=self.text_model, grounded=False,
+        )
+        try:
+            parsed = json.loads((response.text or "").strip())
+        except json.JSONDecodeError as e:
+            raise GeminiError(f"reemote returned non-JSON: {(response.text or '')[:200]}") from e
+        return [k for k in (parsed.get("emotions") or []) if k in emotions.BY_KEY][:8]
 
     async def to_third_person(self, text: str, *, subject: str = "Tim") -> str:
         """DEAD. Written for the third-person rewrite that turned out to be wrong —

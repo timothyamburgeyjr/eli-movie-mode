@@ -31,7 +31,7 @@ import logging
 import re
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 import affinity
 from characters import Character
@@ -984,6 +984,14 @@ class ProposedRule(BaseModel):
             "make the rule true — every extra condition is a turn where it won't fire."
         )
     )
+    scope_note: str = Field(
+        default="",
+        description=(
+            "ONLY when you left this universal because NO fact in the registry matches the "
+            "trigger Tim described. Say so in one plain line, naming what he meant: "
+            "'there is no dial for a con, so this applies always'. Leave empty otherwise."
+        ),
+    )
     conflicts_with: str = Field(
         default="",
         description=(
@@ -992,6 +1000,50 @@ class ProposedRule(BaseModel):
             "never flip a rule across sessions without being told he did."
         )
     )
+
+
+    @model_validator(mode="after")
+    def _a_law_must_be_scoped(self) -> "ProposedRule":
+        """A LAW with no conditions is not a rule. It is a mute button. So it cannot exist.
+
+        `never` with no conditions does not mean "never during a jump scare" — it means HE
+        NEVER SPEAKS AGAIN, in any scene, in any film, enforced in Python before any model is
+        even asked. `always` is the mirror: dragged into every turn, forever. Proved against
+        the real matcher: an unscoped `never` fires in a comedy scene and sets forces_silence.
+
+        THIS USED TO RAISE, AND THAT WAS A BUG OF ITS OWN.
+
+        A ValueError here is a structured-output violation, so the SDK retries — which is fine
+        until a model simply will not comply. `/api/rules/propose` blew both retries returning
+        unscoped `always` and answered Tim with a **502**. He tapped 👍 to reinforce good
+        behaviour and the app fell over. (Made worse by my own oversight: `_PROPOSE_SYSTEM`
+        never told it the rule. Only `_INTERPRET_SYSTEM` did.)
+
+        A safety rule that takes the feature down when it fires is not a safety rule; it is a
+        second failure mode. So it COERCES instead: an unscoped law is softened to the matching
+        lean, and says so. Deterministic, cannot 502, cannot mute anyone.
+
+        The prompts still ASK for a scoped law — and mostly get one, which is better than a
+        softened one. This is the floor, not the plan.
+        """
+        if self.verdict in ("always", "never") and not self.conditions:
+            was = self.verdict
+            self.verdict = "usually" if was == "always" else "rarely"
+            self.universal = True
+            if not self.scope_note:
+                self.scope_note = (
+                    f"I couldn't find a trigger for this, so I softened it from "
+                    f"\u201c{was}\u201d to \u201c{self.verdict}\u201d. A "
+                    f"\u201c{was}\u201d with no trigger would apply on every single turn, "
+                    f"forever. Add a trigger below and you can have it back."
+                )
+            return self
+        # `universal: true` alongside conditions is the same contradiction said another way.
+        # A law WITH conditions is exactly what we want, so just make the flag agree with the
+        # facts rather than throwing the whole response away over a bookkeeping field.
+        if self.verdict in ("always", "never") and self.universal and self.conditions:
+            self.universal = False
+        return self
 
 
 class ProposedRules(BaseModel):
@@ -1060,6 +1112,20 @@ a public theatre"). Most rules are LEANS, because most human behaviour bends: "h
 usually stays out of grief" SHOULD bend when Tim asks him directly. Reach for a law \
 only when you'd defend it with no exceptions at all.
 
+════════ A LAW MUST BE SCOPED ════════
+
+A law (`always` / `never`) with NO conditions applies on EVERY TURN, FOREVER. `never` \
+with no conditions does not mean "never during a jump scare" — it means HE NEVER SPEAKS \
+AGAIN, in any scene, in any film. `always` drags him into every single turn.
+
+    WRONG:  verdict never, conditions []                       <- he is now mute. Forever.
+    RIGHT:  verdict never, WHEN scene_situation is jump_scare
+
+If you reach for a law, FIND THE TRIGGER. If the registry has no dial for it, do NOT \
+leave the law unscoped — soften it to `usually`/`rarely` and say why in `scope_note`. A \
+lean that is a bit too eager is recoverable. A law that mutes someone is not, and Tim \
+will not know it happened.
+
 ════════ SCOPE — as BROAD as the rule actually means ════════
 
 Default to `universal: true`. Only add conditions that are genuinely load-bearing.
@@ -1112,6 +1178,322 @@ RECENTLY, IN THE ROOM:
 
 Propose 3-5 rules. Ground each one in HIM. Default to universal; add a condition only
 when it IS the rule."""
+
+
+_SUGGEST_SYSTEM = """\
+Tim watches films with an AI family. He has opened one person's rule list, with no particular \
+moment in mind, and is looking at what he has written for them so far.
+
+Your job: from WHO THIS PERSON IS, and from the rules he has ALREADY written, work out what is \
+MISSING. Propose 2-3 rules he does not yet have.
+
+════════ THIS IS NOT A JUDGEMENT OF A MOMENT ════════
+
+There is no turn, no scene, no decision to correct. You are not being asked "was that right?" \
+You are being asked "what does the room still not know about him?"
+
+So do not invent a moment. Do not write "he speaks up when the score swells" because it sounds \
+like something he'd do — write it because his sheet says he notices craft, or don't write it.
+
+    DO NOT PROPOSE WHAT HIS PROFILE ALREADY SAYS.
+
+His response profile is below. If it already says he ALWAYS answers a question put to the room, \
+then "he answers questions" is not a rule — it is a fact the room already had, and turning it \
+into a rule teaches nothing while taking up a slot in every prompt from now until the end of \
+time.
+
+A good suggestion is NARROWER or SHARPER than the profile. It is the thing the profile implies \
+but never quite says. If you can only find one, propose one. Fewer good rules beat three padded \
+ones, and he will trust the next list more for it.
+
+════════ HOW STRONG ════════
+
+  always / never   -> a LAW. Enforced in CODE. The room is never even asked.
+  usually / rarely -> a LEAN. Guidance the room weighs against everything else.
+
+DEFAULT TO A LEAN. You are guessing from a disposition, not from something he told you. A law \
+overrides the room's judgement forever, in code, without appeal, and he did not ask for one.
+
+════════ SCOPE ════════
+
+You may ONLY scope to the fact keys given below. Never invent one — a rule scoped to a fact that \
+does not exist saves cleanly, sits in his list looking authoritative, and never once fires.
+
+A LAW MUST BE SCOPED. A law with no conditions applies on EVERY turn, forever: `never` with no \
+conditions does not mean "never during a jump scare", it means HE NEVER SPEAKS AGAIN. If you \
+cannot find a real trigger, do not make it a law — soften it to `usually`/`rarely`.
+
+Otherwise, prefer a general rule. He is looking at a disposition, not at a moment, and a rule \
+pinned to five facts of one evening will never fire again as long as he lives.
+
+If a suggestion would contradict a rule he already has, say so in `conflicts_with`."""
+
+_SUGGEST_USER = """\
+THE PERSON: {name} ({key})
+
+{sheet}
+
+{profile}
+
+RULES TIM HAS ALREADY WRITTEN FOR HIM:
+{existing}
+
+════════ THE FACTS YOU MAY SCOPE A RULE TO ════════
+{registry}
+
+What is MISSING? Propose 2-3 rules his list does not have and his profile does not already
+say. Ground every `why` in HIS material. Default to a LEAN, and to a general rule."""
+
+
+async def suggest_from_profile(
+    *,
+    kin: Character,
+    sheet_block: str,
+    profile_block: str,
+    existing: list[dict],
+    registry_block: str,
+    session_id: Optional[str] = None,
+) -> list[ProposedRule]:
+    """2-3 rules this person is MISSING, read off who they are. No moment required.
+
+    The rule dialog used to open on a blank textarea when there was no turn to reason from —
+    so the one path where Tim least knows what to write was the one where the app said
+    nothing at all. The whole premise is that the model articulates and he judges; a blank
+    page inverts it.
+
+    Same schema as `propose_rules`, deliberately, so the dialog renders these with no changes.
+    """
+    existing_lines = "\n".join(
+        f"  • {r['verdict']} — {r['rule_text']}" +
+        (f"  [{r.get('conditions_label') or 'always'}]" if r.get("conditions_label") else "")
+        for r in existing
+    ) or "  (none yet — these would be his first)"
+
+    result: ProposedRules = await _call(
+        system=_SUGGEST_SYSTEM,
+        user=_SUGGEST_USER.format(
+            name=kin.first_name,
+            key=kin.key,
+            sheet=sheet_block or "(no sheet on file)",
+            profile=profile_block or "",
+            existing=existing_lines,
+            registry=registry_block,
+        ),
+        schema=ProposedRules,
+        call_type="suggest_rules",
+        session_id=session_id,
+        max_tokens=2000,
+    )
+    return result.rules
+
+
+_INTERPRET_SYSTEM = """\
+Tim watches films with an AI family. A coordinator decides who speaks each turn. Tim has \
+noticed something about one of them that none of the existing rules capture, and he has \
+written it down IN HIS OWN WORDS.
+
+Your job is not to judge a turn. It is to take his sentence and make it USABLE: work out \
+what he actually means, and turn it into a rule the room can act on.
+
+════════ HE IS NOT PRECISE, AND HE SHOULDN'T HAVE TO BE ════════
+
+He is on a sofa, mid-film, probably stoned. He types a sentence. It will be loose about \
+exactly the thing that matters most: HOW FAR THE RULE REACHES.
+
+    "he jumps in when someone's being conned"
+
+Does that mean whenever a character is being deceived on screen? Whenever ANYONE is being \
+had, including Tim? Only in crime films? He doesn't know either — he hasn't thought about \
+it, because in his head it was obvious.
+
+So give him 2-3 READINGS of his sentence, most likely first, and make them differ MAINLY \
+IN SCOPE — one tightly scoped to a specific trigger, one broader or universal. He picks. \
+That is the whole reason this asks instead of guessing.
+
+Do not pad. If his sentence genuinely only has one honest reading, return one rule.
+
+════════ HOW STRONG? READ HIS WORDS FIRST, THEN DEFAULT TO A LEAN ════════
+
+  always / never   -> a LAW. Enforced in CODE. The room is never even asked.
+  usually / rarely -> a LEAN. Guidance the room weighs against everything else.
+
+A LAW MUST BE SCOPED. THIS IS NOT NEGOTIABLE.
+
+A law with no conditions applies on EVERY TURN, FOREVER. `never` with no conditions does \
+not mean "never during a jump scare" — it means HE NEVER SPEAKS AGAIN, in any scene, in \
+any film. `always` with no conditions drags him into every single turn.
+
+    Tim types: "bobby never talks during a jump scare"
+    WRONG:  verdict never, conditions []                       <- he is now mute. Forever.
+    RIGHT:  verdict never, WHEN scene_situation is jump_scare
+
+If he gives you a law, FIND THE TRIGGER — it is the part of his sentence after "when", \
+"during", or "if". If the registry genuinely has no dial for it, DO NOT leave a law \
+unscoped: soften it to `usually`/`rarely` instead and say why in `scope_note`. A lean that \
+is a bit too eager is recoverable. A law that mutes someone is not, and he will not know \
+it happened.
+
+FIRST, LOOK FOR HIS OWN WORD. It wins, every time:
+
+    "he ALWAYS jumps in"       -> always   (a LAW. He said always. He meant always.)
+    "he NEVER talks over her"  -> never    (a LAW.)
+    "he USUALLY stays out"     -> usually
+    "he RARELY bothers"        -> rarely
+
+Do not talk him out of it. If he wrote "always" and you hand back "usually", you have \
+quietly overruled the one thing he was explicit about — and he will not find out until \
+the room fails to do what he told it to.
+
+ONLY IF HE SAID NOTHING ABOUT STRENGTH: default to a LEAN. He typed one casual line; a \
+law overrides the room's judgement forever, in code, without appeal. Most human behaviour \
+bends. So absent his word, bend.
+
+(You may offer ONE reading at a different strength if his sentence honestly supports it — \
+but the FIRST reading must carry the strength he actually wrote.)
+
+════════ THE RULE IS ABOUT HIM. THE `why` IS TOO. ════════
+
+Tim's sentence tells you WHAT. His sheet and his vault-derived profile tell you WHY — and \
+`rule_why` must come from THOSE, not from paraphrasing Tim back at himself.
+
+    Tim typed:  "bobby always jumps in when someone's being conned"
+    BAD  why:   "Because Tim says he jumps in when someone's being conned."
+    GOOD why:   "He ran with grifters for a decade. He can see a mark being worked from
+                 across a room, and it offends him."
+
+The room reads `rule_why` at the edges, when the rule nearly applies but not quite. A `why` \
+that just restates the rule is dead weight in every prompt from now on.
+
+    DO NOT RESTATE WHAT HIS PROFILE ALREADY SAYS.
+
+If the profile already says he always answers a direct question, then "Bobby answers \
+questions" is not a rule — it's a fact the room already had. A rule must be NARROWER than \
+the profile, or it must not exist.
+
+════════ IF HE POINTED AT A MOMENT, THE MOMENT IS THE TRIGGER ════════
+
+When he writes from the thumbs popup he is pointing at ONE moment, and you are shown it: \
+what he said, what was on screen, what the room did, and every fact exactly as it read at \
+that instant.
+
+    Tim types: "he should've jumped in there"
+
+"There" is not vague — it is the moment in front of you. If the scene was `craft`, then \
+the trigger IS `scene_situation is craft`, and a reading that leaves that out has thrown \
+away the only thing he actually told you.
+
+So when a moment is given: THE FIRST READING MUST BE SCOPED TO IT. Take the facts that \
+made that moment what it was and put them in `conditions`. Then widen:
+
+    reading 1  tightly scoped to the moment      WHEN scene_situation is craft
+    reading 2  the same instinct, wider          WHEN mood is foreboding
+    reading 3  the disposition behind it         (universal)
+
+That spread is the whole reason he is being shown a choice. Three universal readings are \
+not a choice — they are the same rule said three ways, and none of them is what he asked \
+for.
+
+════════ SCOPE — only conditions that are LOAD-BEARING ════════
+
+You may ONLY scope to the fact keys given to you below. Never invent one. A rule scoped to \
+a fact that does not exist will save cleanly, sit in his list looking authoritative, and \
+never once fire.
+
+AND IF NOTHING FITS, SAY SO. The registry is finite. Tim will describe triggers it simply \
+does not have — there is no dial for "a con", or "a betrayal", or "when the dog appears". \
+When that happens, DO NOT force the rule onto the nearest fact that half-fits. A rule \
+pinned to `mood: tense` because he said "a con" will fire on every tense scene in every \
+film — which is not what he asked for, and is worse than no scope at all.
+
+Leave it universal, and put ONE plain line in `scope_note` telling him why:
+
+    scope_note: "There's no dial for a con, so this applies always."
+
+He would far rather be told the vocabulary is missing something than be handed a rule \
+that looks scoped and fires on all the wrong things.
+
+A rule pinned to every fact of one evening — this mood, this venue, this episode, this \
+company — will never fire again as long as he lives. That is the most common way to make \
+this useless, and it looks like precision while you're doing it.
+
+    "He stays out of grief WHEN DAISY IS IN THE ROOM"   <- the condition IS the rule. Keep it.
+    "He stays out of grief WHEN DAISY IS HERE, in the
+     bedroom, on a Tuesday, in dread, during S01E02"    <- five conditions, zero value.
+
+AND MIND THE LADDER. `watching` is hierarchical: a rule about a SHOW must be scoped to the \
+show, not to the episode that happened to be playing.
+
+If a reading would contradict a rule he already has, say so in `conflicts_with` — he must \
+never flip his own rule without knowing he did."""
+
+_INTERPRET_USER = """\
+THE PERSON: {name} ({key})
+
+{sheet}
+
+{profile}
+
+RULES TIM HAS ALREADY WRITTEN FOR HIM:
+{existing}
+
+════════ WHAT TIM TYPED ════════
+
+"{tim_text}"
+
+════════ WHAT HAS BEEN HAPPENING ════════
+{context}
+
+════════ THE FACTS YOU MAY SCOPE A RULE TO ════════
+{registry}
+
+Give 2-3 readings of his sentence, most likely first, differing mainly in SCOPE.
+Ground every `why` in HIM, not in Tim's words. Unmarked strength means a LEAN."""
+
+
+async def interpret_rule(
+    *,
+    kin: Character,
+    tim_text: str,
+    sheet_block: str,
+    profile_block: str,
+    existing: list[dict],
+    registry_block: str,
+    context_block: str = "",
+    session_id: Optional[str] = None,
+) -> list[ProposedRule]:
+    """Tim wrote a rule in plain English. Turn it into 2-3 usable, scoped readings.
+
+    Same schema as `propose_rules`, deliberately — so the dialog that already renders
+    proposals, ticks, and the "Only when…" chips renders these with no changes at all.
+    His sentence simply becomes a proposal.
+    """
+    existing_lines = "\n".join(
+        f"  • {r['verdict']} — {r['rule_text']}" +
+        (f"  [{r.get('conditions_label') or 'always'}]" if r.get("conditions_label") else "")
+        for r in existing
+    ) or "  (none yet — this would be his first)"
+
+    result: ProposedRules = await _call(
+        system=_INTERPRET_SYSTEM,
+        user=_INTERPRET_USER.format(
+            name=kin.first_name,
+            key=kin.key,
+            sheet=sheet_block or "(no sheet on file)",
+            profile=profile_block or "",
+            existing=existing_lines,
+            tim_text=tim_text.strip(),
+            # No session? Say so plainly. The model must scope from his words alone rather
+            # than inventing a context it was never given.
+            context=context_block or "  (no film running — nothing to point at. Scope this "
+                                     "from his words and from who he is, not from a scene.)",
+            registry=registry_block,
+        ),
+        schema=ProposedRules,
+        call_type="interpret_rule",
+        session_id=session_id,
+        max_tokens=2500,
+    )
+    return result.rules
 
 
 async def propose_rules(

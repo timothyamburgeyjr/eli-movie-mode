@@ -530,6 +530,30 @@ def _as_list(v) -> list:
     return [v]
 
 
+def _one(v: Any) -> str:
+    """One value, as the string a condition would carry."""
+    return str(v).strip().lower()
+
+
+def _norm(vs: Any) -> set[str]:
+    """A condition's values, and a fact's value, on the SAME footing.
+
+    A CONDITION IS ALWAYS STRINGS. `RuleCondition.value` is `list[str]`, and the dial picker
+    does `String(o.value)`. But the FACTS hold real types — `rewatch` is a bool, `tim_stoned`
+    is an int, `year` is a number.
+
+    So `have in want` was comparing `True` against `["True"]`, and `2` against `["2"]`, and
+    getting False every single time. Measured: five of the six condition kinds could NEVER
+    fire. Every rule anyone ever scoped to a stoned level, a rewatch, or a year has silently
+    done nothing since the day the feature shipped — and it looked completely fine in the
+    list, which is why nobody found it.
+
+    This is why `_match_one` returning False is such a dangerous default: a rule that cannot
+    match is indistinguishable, from the outside, from a rule whose moment simply hasn't come.
+    """
+    return {_one(v) for v in _as_list(vs)}
+
+
 def _match_one(cond: dict, ctx: TurnContext, kin_key: Optional[str]) -> bool:
     fact_key = cond.get("fact")
     op = cond.get("op")
@@ -547,12 +571,12 @@ def _match_one(cond: dict, ctx: TurnContext, kin_key: Optional[str]) -> bool:
         if f.kind == "ladder":
             # ANY rung matching is a match. That's what makes a show-level rule
             # fire on every episode.
-            return bool(set(_as_list(have)) & set(want))
-        return have in want
+            return bool(_norm(have) & _norm(want))
+        return _one(have) in _norm(want)
     if op == "is_not":
         if f.kind == "ladder":
-            return not (set(_as_list(have)) & set(want))
-        return have not in want
+            return not (_norm(have) & _norm(want))
+        return _one(have) not in _norm(want)
     if op == "includes":
         # ALL of the wanted people/things must be present. "when Daisy AND Jeff are here."
         return set(want).issubset(set(_as_list(have)))

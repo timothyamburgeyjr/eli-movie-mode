@@ -81,5 +81,64 @@ for _, _, d, want_speech, _ in CASES:
           (says_speak if want_speech else says_quiet),
           seg.replace("\n", " ")[:100])
 
+
+# ===============================================================================
+#  WHERE `spoke` COMES FROM
+#
+#  Everything above tests what the server does GIVEN (spoke, approved). It never asked
+#  where `spoke` came from -- and that is exactly the hole the real bug walked through.
+#
+#  The relay gives the mic to speakers + leaners + floor. The frozen decision was storing
+#  only `speaking`, which is the coordinator's PLAN. So a kin who BARGED IN and talked was
+#  recorded as having stayed quiet. Bobby leaned in, spoke, Tim tapped a thumbs-up to
+#  reinforce it -- and the dialog asked him to explain why Bobby had been right to say
+#  nothing. A rule written from that would have taught the room the precise opposite of
+#  what he meant, and it would have looked correct at every step.
+# ===============================================================================
+print("")
+print("=== `spoke` means WHO GOT THE MIC, not who was on the plan ===")
+
+import app  # noqa: E402
+
+SPOKE_CASES = [
+    ("on the coordinator's mic order", {"speaking": ["bobby"]}, True),
+    ("BARGED IN (this was the bug)", {"speaking": ["adam"],
+                                      "leaned_in": [{"key": "bobby", "reason": "x"}]}, True),
+    ("pulled in off the floor", {"speaking": ["adam"], "floor": ["bobby"]}, True),
+    ("forced to speak by a LAW", {"speaking": ["adam"],
+                                  "law_forced": [{"key": "bobby", "reason": "x"}]}, True),
+    ("stayed silent", {"speaking": ["adam"], "silent": ["bobby"]}, False),
+    ("tapped, but PASSED", {"speaking": ["adam"],
+                            "passed": [{"key": "bobby", "reason": "not for me"}]}, False),
+    ("held back for a private moment", {"speaking": ["adam"],
+                                        "held_back": [{"key": "bobby", "reason": "x"}]}, False),
+    ("silenced by a LAW", {"speaking": ["adam"],
+                           "law_silenced": [{"key": "bobby", "reason": "x"}]}, False),
+]
+for _label, _decision, _want in SPOKE_CASES:
+    _got = "bobby" in app._who_spoke(_decision)
+    check(f"{_label:34} -> spoke={_want}", _got == _want, f"got {_got}")
+
+print("")
+print("=== the real turn 25, exactly as it was frozen ===")
+TURN_25 = {
+    "speaking": ["adam"],
+    "leaned_in": [{"key": "bobby", "reason": "Bobby knows every trick in that book."}],
+    "floor": [], "held_back": [], "passed": [], "law_forced": [], "law_silenced": [],
+    "silent": ["jeff", "thomas"],
+}
+check("bobby spoke (he leaned in)", "bobby" in app._who_spoke(TURN_25))
+check("adam spoke", "adam" in app._who_spoke(TURN_25))
+check("jeff did not", "jeff" not in app._who_spoke(TURN_25))
+check("thomas did not", "thomas" not in app._who_spoke(TURN_25))
+_d, _speech = direction_for(True, True)
+check("...so a thumbs-up on him asks about SPEAKING",
+      _d == "was_right_to_speak" and _speech, _d)
+
+print("")
+print("=== a turn frozen with the new `spoke` key is trusted verbatim ===")
+check("explicit `spoke` wins over the buckets",
+      app._who_spoke({"spoke": ["bobby"], "speaking": [], "leaned_in": []}) == {"bobby"})
+
 print("\n" + ("ALL PASS" if ok else "FAILURES ABOVE"))
 sys.exit(0 if ok else 1)

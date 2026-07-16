@@ -97,6 +97,11 @@ async def lifespan(app: FastAPI):
         log.exception("portrait refresh failed — falling back to initials")
 
     plex_monitor.add_listener(_on_plex_event)
+    # A pin survives a restart. Otherwise a container rebuild mid-film quietly hands the
+    # choice back to the guesswork he had already corrected.
+    pinned = await db.get_setting("plex_pinned")
+    if pinned:
+        plex_monitor.pin(pinned)
     await plex_monitor.start()
 
     mood_task = asyncio.create_task(_mood_ticker_loop(), name="mood-ticker")
@@ -247,6 +252,47 @@ async def _on_plex_event(event: str, data: dict[str, Any]) -> None:
 # ──────────────────────────────────────────────────────────────────────
 # Gemini pipeline
 # ──────────────────────────────────────────────────────────────────────
+def _mechanical_briefing(plex_data: dict[str, Any], is_continuation: bool) -> str:
+    """A briefing built from what Plex already handed us. No model, so it cannot fail.
+
+    THE BRIEFING IS NOT COMMENTARY. It is the thing that tells everyone in the room that the
+    show is STARTING — the lights going down. When Gemini returns nothing (and it does), the
+    old code hit `if briefing_text.strip():`, found an empty string, and quietly skipped the
+    entire relay. No error, no system line, no retry: Tim got a blank card and a family who
+    had never been told a film had begun. He only found out by opening their Kindroids.
+
+    An empty briefing must never mean silence. Anything is better than nothing here, and Plex
+    already gives us the title, the year, the director and a synopsis — which is most of what
+    the briefing was going to say anyway.
+
+    First person, because Kindroid renders the OUTGOING message as the SENDER's. This is Tim
+    talking to the room.
+    """
+    title = (plex_data.get("title") or "").strip() or "something"
+    year = plex_data.get("year")
+    director = (plex_data.get("director") or "").strip()
+    summary = (plex_data.get("summary") or "").strip()
+    series = (plex_data.get("series_title") or "").strip()
+    season = plex_data.get("season_number")
+    episode = plex_data.get("episode_number")
+
+    if series and season and episode:
+        what = f"{series}, season {season}, episode {episode} — \u201c{title}\u201d"
+    elif year:
+        what = f"{title} ({year})"
+    else:
+        what = title
+
+    opener = "Next up:" if is_continuation else "Putting on"
+    bits = [f"{opener} {what}."]
+    if director:
+        bits.append(f"{director} directed it.")
+    if summary:
+        bits.append(summary[:400].rstrip())
+    bits.append("Settling in now \u2014 talk to you as it goes.")
+    return " ".join(bits)
+
+
 async def _generate_briefing_card(session_id: str, movie_id: int, plex_data: dict[str, Any]) -> None:
     """Kick off a Gemini briefing for a newly-detected movie, then relay it to
     Kindroid so Eli gets the context too.
@@ -321,7 +367,21 @@ async def _generate_briefing_card(session_id: str, movie_id: int, plex_data: dic
         await db.add_message(session_id, "system", "Briefing unavailable — Gemini error.")
         return
 
-    briefing_text = result.get("briefing", "")
+    briefing_text = (result.get("briefing") or "").strip()
+    # GEMINI CAME BACK EMPTY. It happens. What must NOT happen is that the room hears nothing
+    # and nobody is told — which is exactly what used to occur, because an empty string simply
+    # failed the `if briefing_text.strip()` guard further down and the whole relay was skipped
+    # in silence. Write one ourselves out of the Plex metadata, and say we did.
+    if not briefing_text:
+        log.warning("Gemini returned an empty briefing for %r — using the plain one",
+                    plex_data.get("title"))
+        briefing_text = _mechanical_briefing(plex_data, is_continuation)
+        await db.add_message(
+            session_id, "system",
+            "Briefing came back empty \u2014 sent the plain one instead, so everyone knows "
+            "the film has started.",
+        )
+
     scores_payload = {
         "scores": result.get("scores") or {},
         "rating_key": plex_data.get("rating_key"),
@@ -359,9 +419,17 @@ async def _generate_briefing_card(session_id: str, movie_id: int, plex_data: dic
     # The briefing goes in the scene-narration slot (top-of-mind context).
     # No history (fresh start for this movie), no reaction, no dialogue.
     # No typing indicator — briefing isn't a Tim-initiated conversation turn.
-    if briefing_text.strip():
-        # Give the kin the full setting once, here, rather than the short
-        # per-message standing line.
+    # EVERYONE PRESENT GETS IT — the people Tim is talking to AND the people listening.
+    # `_send_to_kindroid_and_render` fans out over the whole ROOM (not the addressed subset),
+    # which is what marks the start of the show for all of them. Verified against a real
+    # briefing: room was jeff/adam/thomas/bobby with only adam addressed, and all four
+    # answered.
+    #
+    # No `if` guard here any more. There was one, and an empty briefing walked straight
+    # through it into silence.
+    room, addressed = await _room_and_addressed()
+    log.info("briefing -> %d in the room: %s", len(room), ", ".join(c.key for c in room))
+    if room:
         venue, people, descriptions = await _presence_state()
         setting_note = presence.briefing_note(
             venue, descriptions.get(venue or "", ""), people
@@ -835,7 +903,7 @@ async def _send_to_kindroid_and_render(
         return
 
     # Nobody's waiting on anybody else here, so don't make them queue.
-    await asyncio.gather(
+    results = await asyncio.gather(
         *(
             _send_one_kin(
                 session_id, kin,
@@ -849,6 +917,28 @@ async def _send_to_kindroid_and_render(
         ),
         return_exceptions=True,
     )
+
+    # A KIN WHO MISSED IT MUST NOT MISS IT SILENTLY.
+    #
+    # `return_exceptions=True` collects the failures instead of raising them — and then this
+    # code threw the list away without looking at it. A briefing went out to a room of four;
+    # Bobby's call failed; jeff, thomas and adam answered and Bobby simply wasn't there. The
+    # card cheerfully said the briefing had been sent, and the only way to discover otherwise
+    # was to open his Kindroid and find nothing in it.
+    #
+    # Half a room being briefed is worse than none, because nobody can see the difference.
+    missed = [
+        (kin, err) for kin, err in zip(targets, results) if isinstance(err, BaseException)
+    ]
+    for kin, err in missed:
+        log.error("kindroid send FAILED for %s: %s", kin.key, err, exc_info=err)
+    if missed:
+        names = _join_names([k.first_name for k, _ in missed])
+        await db.add_message(
+            session_id, "system",
+            f"{names} didn't get that — Kindroid wouldn't take it.",
+        )
+        await manager.broadcast({"type": "refresh"})
 
 
 async def _send_one_kin(
@@ -2006,8 +2096,27 @@ async def _run_relay(
     #
     # Nothing new is computed here. It's all already sitting in local variables.
     quiet_now = await _turns_since_spoke(session_id, room)
+    # WHO ACTUALLY GOT THE MIC. This is the list, and it is not `speaking`.
+    #
+    # `speaking` is the coordinator's PLAN — the mic order it handed out. But people also
+    # join by BARGING IN (`leaned_in`) and by being pulled in off the floor, and the relay
+    # sends for all of them (see `speaking_order` below). So `speaking` is a plan, and this
+    # is what happened.
+    #
+    # Reading `spoke` off `speaking` meant every barge-in was recorded as having stayed
+    # QUIET. Bobby leaned in, spoke, Tim tapped 👍 to reinforce it — and the dialog asked him
+    # to explain why Bobby was right to say nothing. A 👍 there would have written a rule
+    # teaching the exact opposite of what he meant, and it would have looked correct the
+    # whole way through.
+    spoke_keys = (
+        [c.key for c in speakers]
+        + [c.key for c in leaners]
+        + [c.key for c in floor]
+        + [c.key for c in law_forced]
+    )
     room_decision = {
-        "speaking": [c.key for c in speakers],
+        "spoke": list(dict.fromkeys(spoke_keys)),   # THE record of who talked
+        "speaking": [c.key for c in speakers],      # the coordinator's mic order (the plan)
         "leaned_in": [
             {"key": c.key, "reason": barge_reasons.get(c.key, "")} for c in leaners
         ],
@@ -3518,6 +3627,36 @@ def _registry_for_prompt(ctx: facts.TurnContext) -> str:
     return "\n".join(lines)
 
 
+def _registry_all_for_prompt() -> str:
+    """The WHOLE registry — every fact and its allowed values, with no turn to read from.
+
+    `_registry_for_prompt` above lists only the facts that have a value *this turn*, which is
+    exactly right when Tim is judging a moment. But when he writes a rule from the editor with
+    no film running there IS no turn, so that function returns nothing and the model has
+    nothing to scope to — every rule would come out universal, which is the very gap this
+    feature exists to close.
+
+    So this one lists the vocabulary instead of the readings: what a fact IS, and what values
+    it can take.
+    """
+    lines = []
+    for f in facts.FACTS.values():
+        line = f"  {f.key} ({f.kind}) — {f.blurb}"
+        if f.options:
+            vals = [str(o["value"]) for o in f.options]
+            shown = ", ".join(vals[:14]) + (" …" if len(vals) > 14 else "")
+            line += f"\n      values: {shown}"
+        elif f.kind == "level":
+            line += "\n      values: 0-3  (sober, lifted, baked, blasted)"
+        elif f.kind == "flag":
+            line += "\n      values: true, false"
+        elif f.kind == "ladder":
+            line += "\n      values: whatever is playing — a show, a season, an episode "
+            line += "(hierarchical: scope to the SHOW unless he means the one episode)"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _facts_for_prompt(ctx: facts.TurnContext, kin_key: str) -> str:
     """What was true at the time, in words."""
     lines = []
@@ -3578,6 +3717,28 @@ async def api_facts(_auth: dict = Depends(require_auth)):
                          "verdicts": facts.VERDICTS, "laws": sorted(facts.LAWS)})
 
 
+def _who_spoke(decision: dict) -> set[str]:
+    """Everyone who got the mic on that turn.
+
+    NOT `speaking` — that is the coordinator's plan. People also barge in (`leaned_in`) and
+    get pulled in off the floor, and the relay sends for all of them. Newer turns record
+    this directly as `spoke`; older ones are reconstructed from the same buckets.
+
+    KEEP THIS ABOVE THE ROUTE DECORATOR. It once sat directly BENEATH `@app.post`, which
+    bound the route to this helper instead of the handler below — and because this returns a
+    set, the route answered 200 with `[]`. It failed OPEN: no error in the browser, the dialog
+    still opened, and every 👍/👎 was silently discarded. test_routes.py now asserts the
+    binding, because nothing else can see this.
+    """
+    if decision.get("spoke") is not None:
+        return set(decision["spoke"])
+    out: set[str] = set(decision.get("speaking") or [])
+    out |= set(decision.get("floor") or [])
+    for bucket in ("leaned_in", "law_forced"):
+        out |= {x["key"] for x in (decision.get(bucket) or []) if isinstance(x, dict)}
+    return out
+
+
 @app.post("/api/feedback")
 async def api_feedback(request: Request, _auth: dict = Depends(require_auth)):
     """👍 / 👎 on one person, on one turn. Banked instantly. NEVER blocks on a model.
@@ -3612,7 +3773,13 @@ async def api_feedback(request: Request, _auth: dict = Depends(require_auth)):
     # Did they speak? Read it from the FROZEN record, never from what the client claims —
     # the client could be looking at a stale bubble, and getting this backwards would teach
     # the room the exact opposite of what he meant.
-    spoke = kin_key in (decision.get("speaking") or [])
+    #
+    # `spoke` is the list of everyone who got the mic. `speaking` is only the coordinator's
+    # PLAN, and reading this off `speaking` missed every barge-in — so a kin who leaned in
+    # and talked was recorded as having stayed quiet, and a 👍 on him wrote a rule telling
+    # him to shut up. Turns frozen before `spoke` existed are reconstructed from the same
+    # buckets the relay actually sends to.
+    spoke = kin_key in _who_spoke(decision)
     in_force = (decision.get("rules_in_force") or {}).get(kin_key) or []
 
     fid = await db.set_turn_feedback(
@@ -3809,6 +3976,391 @@ async def api_propose_rules(request: Request, _auth: dict = Depends(require_auth
     })
 
 
+# The strength words Tim actually types, and what they mean. Ordered longest-first so
+# "not always" is seen before "always".
+_STRENGTH_WORDS = [
+    ("never", "never"), ("always", "always"),
+    ("usually", "usually"), ("often", "usually"), ("tends to", "usually"),
+    ("rarely", "rarely"), ("seldom", "rarely"), ("hardly ever", "rarely"),
+]
+_NEGATORS = ("not", "never", "doesn't", "does not", "don't", "do not",
+             "isn't", "is not", "won't", "will not")
+
+
+def _stated_strength(text: str) -> Optional[str]:
+    """The verdict TIM ACTUALLY WROTE, if he wrote one.
+
+    ENFORCED, NOT REQUESTED. He typed "bobby ALWAYS jumps in", and the model handed back
+    `usually` — quietly overruling the one thing he was explicit about. He would not have
+    found out until the room failed to do what he told it to.
+
+    Asking a model harder is not a fix for that; the whole system already knows this, which is
+    why laws execute in Python before a model is ever called. So: if he named a strength, it
+    wins, and the code makes it win.
+
+    A negated word means the opposite of itself and is NOT a strength claim — "he doesn't
+    always jump in" is emphatically not `always`. When in doubt, return None and let the model
+    (and its lean default) decide.
+    """
+    low = f" {(text or '').lower().strip()} "
+    for word, verdict in _STRENGTH_WORDS:
+        i = low.find(f" {word} ")
+        if i < 0:
+            continue
+        before = low[max(0, i - 14):i]
+        if any(n in before for n in _NEGATORS):
+            return None          # "doesn't always" — he means the opposite. Don't guess.
+        return verdict
+    return None
+
+
+@app.post("/api/rules/suggest")
+async def api_suggest_rules(request: Request, _auth: dict = Depends(require_auth)):
+    """What rules is this person MISSING? Read off who they are — no moment needed.
+
+    The rule dialog used to open on a blank textarea whenever there was no turn to reason
+    from. So the one path where Tim least knows what to write — "I've opened Bobby's rules,
+    now what?" — was the one where the app said nothing at all. The premise of this whole
+    feature is that the model articulates and he judges. A blank page inverts it.
+
+    Wire-identical to `/api/rules/propose`, so the dialog renders these with no changes.
+    """
+    body = await request.json()
+    kin_key = (body.get("kin_key") or "").strip()
+    kin = characters.get_character(kin_key)
+    if not kin:
+        raise HTTPException(status_code=400, detail=f"No such person: {kin_key}")
+
+    sheet = affinity.load_sheet(kin.key)
+    existing = await db.get_kin_rules(kin.key)
+    for r in existing:
+        r["conditions_label"] = facts.describe_conditions(r)
+
+    active = await db.get_active_session()
+    try:
+        proposed = await coordinator.suggest_from_profile(
+            kin=kin,
+            sheet_block=affinity.for_prompt(sheet) if sheet else "",
+            profile_block=affinity.profile_for_prompt(kin.key),
+            existing=existing,
+            registry_block=_registry_all_for_prompt(),
+            session_id=active["id"] if active else None,
+        )
+    except coordinator.CoordinatorError as e:
+        raise HTTPException(status_code=502, detail=f"Couldn't think of anything: {e}")
+
+    # A GUESS NEVER BECOMES A LAW.
+    #
+    # These are read off a disposition, not off anything Tim said — he hasn't even typed yet.
+    # A LAW is enforced in Python before the room is asked, forever, without appeal, and there
+    # is no way to soften a verdict on a proposal card: it is tick-or-leave. So a machine's
+    # guess about a man's character must not be able to hand him one.
+    #
+    # The prompt asks for leans and the model mostly obliges — it returned a `never` on the
+    # first real run. Asking is not enough for something this asymmetric.
+    _SOFTEN = {"always": "usually", "never": "rarely"}
+    for pr in proposed:
+        if pr.verdict in _SOFTEN:
+            pr.verdict = _SOFTEN[pr.verdict]
+
+    return JSONResponse({
+        "kin": {"key": kin.key, "first_name": kin.first_name},
+        "rules": [
+            {
+                "rule_text": p.rule_text,
+                "rule_why": p.rule_why,
+                "verdict": p.verdict,
+                "is_law": p.verdict in facts.LAWS,
+                "universal": p.universal,
+                "conditions": [] if p.universal else [
+                    {"fact": c.fact, "op": c.op, "value": c.value} for c in p.conditions
+                ],
+                "conflicts_with": p.conflicts_with,
+                "scope_note": getattr(p, "scope_note", "") or "",
+            }
+            for p in proposed
+        ],
+    })
+
+
+@app.post("/api/rules/interpret")
+async def api_interpret_rule(request: Request, _auth: dict = Depends(require_auth)):
+    """Tim wrote a rule in his own words. Work out what he means — including the TRIGGERS.
+
+    The hand-written path used to save whatever he typed with `conditions: []`, so every rule
+    he wrote himself was universal. It never asked what the rule was ABOUT. This does.
+
+    The response is deliberately wire-identical to `/api/rules/propose`, so the dialog that
+    already renders proposal cards, ticks, and the "Only when…" chips renders these unchanged.
+    His sentence just becomes a proposal — and because the model GUESSED those triggers, the
+    part that matters is that he can see them and fix them before saving.
+    """
+    body = await request.json()
+    kin_key = (body.get("kin_key") or "").strip()
+    text = (body.get("text") or "").strip()
+    turn_id = body.get("turn_id")
+    kin = characters.get_character(kin_key)
+    if not kin:
+        raise HTTPException(status_code=400, detail=f"No such person: {kin_key}")
+    if not text:
+        raise HTTPException(status_code=400, detail="Write the rule first")
+
+    sheet = affinity.load_sheet(kin.key)
+    existing = await db.get_kin_rules(kin.key)
+    for r in existing:
+        r["conditions_label"] = facts.describe_conditions(r)
+
+    # GROUND IT AS HARD AS WE CAN. Three tiers, and the gap between them is the gap between
+    # a rule that fires and one that never does:
+    #
+    #   A TURN    — he is writing from the thumbs popup, pointing at one moment. The model
+    #               gets what he SAID, what was ON SCREEN, what the ROOM DID, and the facts
+    #               exactly as they were FROZEN at that instant. "He should have jumped in
+    #               THERE" resolves, because there is a `there`.
+    #   A SESSION — the editor, mid-film. Recent turns and the last frozen facts.
+    #   NOTHING   — the editor, cold. Say so plainly; scope from his words alone.
+    active = await db.get_active_session()
+    context_block = ""
+    ctx = None
+    session_for_call = active["id"] if active else None
+
+    turn = await db.get_turn_decision(int(turn_id)) if turn_id else None
+    if turn:
+        session_for_call = turn["session_id"] or session_for_call
+        ctx = facts.TurnContext.from_json(turn.get("facts_json"))
+        try:
+            decision = json.loads(turn.get("decision_json") or "{}")
+        except (ValueError, TypeError):
+            decision = {}
+        row = await db.fetch_one(
+            "SELECT content, scene_context FROM messages WHERE id = ?",
+            (turn.get("tim_message_id"),),
+        )
+        tim_said = (row["content"] if row else "") or ""
+        scene = (row["scene_context"] if row else "") or ""
+        history = await build_session_history_for_gemini(turn["session_id"], max_exchanges=5)
+        bits = [
+            "THE MOMENT HE IS POINTING AT:",
+            "  TIM SAID: " + (tim_said or "(he typed nothing - he reacted)"),
+            "  ON SCREEN: " + (scene or "(no scene analysis)"),
+            "  THE ROOM DID: " + _decision_for_prompt(decision, kin.key, kin.first_name),
+            "",
+            "WHAT WAS TRUE AT THAT EXACT MOMENT:",
+            _facts_for_prompt(ctx, kin.key),
+        ]
+        if history:
+            bits += ["", "RECENTLY, IN THE ROOM:", history]
+        context_block = "\n".join(bits)
+    elif active:
+        history = await build_session_history_for_gemini(active["id"], max_exchanges=5)
+        bits = []
+        if history:
+            bits.append("RECENTLY, IN THE ROOM:\n" + history)
+        last = await db.fetch_one(
+            "SELECT facts_json FROM turn_decisions WHERE session_id = ? "
+            "ORDER BY id DESC LIMIT 1", (active["id"],)
+        )
+        if last and last["facts_json"]:
+            ctx = facts.TurnContext.from_json(last["facts_json"])
+            bits.append("TRUE AS OF THE LAST TURN:\n" + _facts_for_prompt(ctx, kin.key))
+        context_block = "\n\n".join(bits)
+
+    try:
+        proposed = await coordinator.interpret_rule(
+            kin=kin,
+            tim_text=text,
+            sheet_block=affinity.for_prompt(sheet) if sheet else "",
+            profile_block=affinity.profile_for_prompt(kin.key),
+            existing=existing,
+            # With a turn, show what each fact ACTUALLY READ at that instant, so the model
+            # scopes to a real value instead of guessing from the vocabulary in the abstract.
+            # Without one, the whole registry, because there is no reading to show.
+            registry_block=(
+                _registry_for_prompt(ctx) + "\n\n" + _registry_all_for_prompt()
+                if ctx else _registry_all_for_prompt()
+            ),
+            context_block=context_block,
+            session_id=session_for_call,
+        )
+    except coordinator.CoordinatorError as e:
+        raise HTTPException(status_code=502, detail=f"Couldn't make sense of that: {e}")
+
+    # HIS WORD WINS, AND CODE MAKES IT WIN. The prompt asks for this; the model does not
+    # reliably comply (it gave `usually` for a sentence that plainly said ALWAYS). Overruling
+    # him silently on the one thing he was explicit about is the worst failure this feature
+    # has, so it is not left to persuasion.
+    #
+    # BUT NOT AT THE COST OF A MUTE BUTTON. Forcing `never` onto a reading with NO conditions
+    # manufactures exactly the rule the schema validator exists to forbid: a law that applies
+    # on every turn, forever, silencing him in every scene of every film. So a LAW is only
+    # forced onto a reading that can actually carry one — a scoped one. If the model produced
+    # no scoped reading at all, his word does not get to build a mute button; the leans stand,
+    # and he can scope one himself with the chips.
+    # THE MOMENT HE POINTED AT IS THE TRIGGER — AND THE CODE MAKES IT SO.
+    #
+    # He writes "he should've jumped in there" from the thumbs popup. "There" is not vague: it
+    # is the turn in front of us, and its facts are frozen. The prompt says this at length,
+    # three different ways. The model understood the moment perfectly — every rule it wrote was
+    # ABOUT the craft scene — and then returned three UNIVERSAL readings anyway, which is not a
+    # choice at all, it is the same rule said three times.
+    #
+    # So if it gave us nothing scoped, pin the first reading to the moment ourselves, and SAY
+    # we did. This is safe in a way the reverse is not: over-scoping is one tap to undo (the
+    # trigger is a chip he can remove), while a universal rule he BELIEVES is scoped is a rule
+    # that fires on everything, and he finds out weeks later.
+    # The test is whether the MOMENT'S OWN FACT is pinned anywhere — not whether any condition
+    # exists at all. The model happily scoped reading 3 to `rewatch` while leaving the reading
+    # he would actually pick universal, and the cruder check waved that through.
+    if turn and ctx and proposed:
+        pin = next(
+            (f for f in ("scene_situation", "tim_situation")
+             if ctx.get(f) and ctx.get(f) != "none"),
+            None,
+        )
+        already = pin and any(
+            c.fact == pin for p in proposed for c in p.conditions
+        )
+        if pin and not already and not proposed[0].conditions:
+            value = str(ctx.get(pin))
+            proposed[0].conditions = [
+                coordinator.RuleCondition(fact=pin, op="is", value=[value])
+            ]
+            proposed[0].universal = False
+            label = facts.FACTS[pin].label
+            proposed[0].scope_note = (
+                f"I pinned this to the moment you pointed at ({label}: {value}). "
+                f"Remove the chip if you meant it more broadly."
+            )
+
+    # NO MOMENT TO POINT AT ⇒ A GENERAL RULE.
+    #
+    # From the rules editor he isn't pointing at anything — he's writing down something he
+    # believes about the man. "He talks about cars" means he talks about cars, not "he talks
+    # about cars WHEN THE MOOD IS TENSE AND WE'RE REWATCHING", which is what a model handed
+    # the whole fact registry will happily produce. A rule pinned to five facts of one evening
+    # never fires again as long as he lives, and it looks like precision while you do it.
+    #
+    # LEANS ONLY. Stripping the trigger off a LAW would manufacture exactly the mute button
+    # the schema validator exists to forbid: an unscoped `never` does not mean "never during a
+    # jump scare", it means he never speaks again, in any scene, in any film. If he typed
+    # "always" or "never" cold, the law keeps its trigger.
+    if not turn and proposed and proposed[0].conditions \
+            and proposed[0].verdict in facts.LEANS:
+        proposed[0].conditions = []
+        proposed[0].universal = True
+        proposed[0].scope_note = (
+            "You weren't pointing at a moment, so I've made this a general rule. "
+            "Add a trigger below if you meant something narrower."
+        )
+
+    strength = _stated_strength(text)
+    if strength and proposed:
+        if strength in facts.LEANS:
+            proposed[0].verdict = strength                 # a lean is safe anywhere
+        else:
+            scoped = next((i for i, p in enumerate(proposed) if p.conditions), None)
+            if scoped is not None:
+                proposed[scoped].verdict = strength
+                proposed[scoped].universal = False
+                if scoped:                                  # bring his reading to the front
+                    proposed.insert(0, proposed.pop(scoped))
+            # else: no scoped reading exists. Do NOT forge an unscoped law out of his word.
+
+    return JSONResponse({
+        "kin": {"key": kin.key, "first_name": kin.first_name},
+        "turn_id": None,
+        "you_said": text,
+        "what_happened": "",
+        "grounded": bool(context_block),
+        "grounded_on": "turn" if turn else ("session" if active else ""),
+        "stated_strength": strength or "",
+        "rules": [
+            {
+                "rule_text": p.rule_text,
+                "rule_why": p.rule_why,
+                "verdict": p.verdict,
+                "is_law": p.verdict in facts.LAWS,
+                "universal": p.universal,
+                "conditions": [] if p.universal else [
+                    {"fact": c.fact, "op": c.op, "value": c.value} for c in p.conditions
+                ],
+                "conflicts_with": p.conflicts_with,
+                "scope_note": getattr(p, "scope_note", "") or "",
+            }
+            for p in proposed
+        ],
+    })
+
+
+def _check_conditions(conds: list) -> None:
+    """A condition that names a fact we don't have can NEVER fire.
+
+    `_match_one` returns False for an unknown key and logs a warning nobody reads. So the rule
+    saves cleanly, sits in his list looking authoritative, and does nothing — forever. That was
+    survivable while conditions came from a menu of real dials. It is not survivable now that a
+    model invents them from a sentence. Refuse it at the door.
+
+    Values are checked too, where the fact has a fixed set of them. `watching includes
+    ["western"]` names a real fact with a value it can never hold — `watching` is the title
+    that is playing, not a genre — and it fails exactly like a bad key: silently, forever.
+    """
+    for c in conds or []:
+        fact = (c or {}).get("fact")
+        op = (c or {}).get("op")
+        if fact not in facts.FACTS:
+            raise HTTPException(status_code=400, detail=f"No such fact to scope to: {fact!r}")
+        if op not in facts.OPS:
+            raise HTTPException(status_code=400, detail=f"Not a condition I understand: {op!r}")
+        f = facts.FACTS[fact]
+        allowed = {str(o["value"]) for o in f.options} if f.options else None
+        # `kins_here` / `kins_talking` have NO static options — they're built from the live
+        # roster — so nothing checked them, and the model happily produced
+        # `kins_talking = ['tim']`. Tim is not a kin. That condition could never match, and
+        # the rule would have sat in the list looking authoritative and doing nothing.
+        if f.kind == "set" and fact.startswith("kins_"):
+            allowed = {c.key for c in characters.selectable()}
+        if allowed is not None:
+            for v in (c.get("value") or []):
+                if str(v) not in allowed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{fact} can't be {v!r}. It can be: "
+                               f"{', '.join(sorted(allowed))}",
+                    )
+
+
+def _guard_unscoped_law(verdict: str, conds: list, first_name: str, confirmed: bool) -> None:
+    """A LAW with no conditions applies on EVERY turn. Forever.
+
+    Tim typed "bobby never talks during a jump scare" and the model handed back `never` with no
+    conditions. Verified against the real matcher: that rule fires in a comedy scene, is
+    enforced in Python before any model is called, and sets `forces_silence`. Bobby would never
+    have spoken again — and nothing on screen would have told him why. `always` is the mirror:
+    dragged into every turn, forever.
+
+    The trigger he needed (`scene_situation: jump_scare`) was in the registry the model was
+    given. It simply didn't use it. So this is not left to persuasion.
+
+    He CAN still do it — "he never heckles, full stop" is a thing a person might mean — but he
+    has to say so on purpose. An accident here is silent and permanent.
+    """
+    if verdict not in facts.LAWS or conds:
+        return
+    if confirmed:
+        return
+    doing = "never speak again — in ANY scene, in any film" if verdict == "never" \
+        else "be pulled into EVERY turn — in any scene, in any film"
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"That's a LAW with no trigger, so it applies on every single turn: "
+            f"{first_name} would {doing}. "
+            f"Add a trigger (\u201conly when\u2026\u201d), or soften it to \u201cusually\u201d / "
+            f"\u201crarely\u201d — or confirm you really mean it."
+        ),
+    )
+
+
 @app.post("/api/rules")
 async def api_create_rules(request: Request, _auth: dict = Depends(require_auth)):
     """Save the rules Tim tapped."""
@@ -3816,7 +4368,8 @@ async def api_create_rules(request: Request, _auth: dict = Depends(require_auth)
     kin_key = (body.get("kin_key") or "").strip()
     rules = body.get("rules") or []
     turn_id = body.get("turn_id")
-    if not characters.get_character(kin_key):
+    kin = characters.get_character(kin_key)
+    if not kin:
         raise HTTPException(status_code=400, detail=f"No such person: {kin_key}")
 
     active = await db.get_active_session()
@@ -3839,6 +4392,9 @@ async def api_create_rules(request: Request, _auth: dict = Depends(require_auth)
         text = (r.get("rule_text") or "").strip()
         if not text:
             continue
+        conds = r.get("conditions") or []
+        _check_conditions(conds)
+        _guard_unscoped_law(verdict, conds, kin.first_name, bool(r.get("confirm_universal_law")))
         rule_id = await db.add_kin_rule(
             kin_key=kin_key,
             rule_text=text,
@@ -3877,6 +4433,18 @@ async def api_edit_rule(rule_id: int, request: Request, _auth: dict = Depends(re
     verdict = (body.get("verdict") or row["verdict"]).strip()
     if verdict not in facts.VERDICTS:
         raise HTTPException(status_code=400, detail=f"Bad verdict: {verdict!r}")
+    if body.get("conditions") is not None:
+        _check_conditions(body["conditions"])
+    # He can also make an unscoped law by DELETING the last chip off a scoped one. Same
+    # permanence, same silence.
+    _edit_kin = characters.get_character(row["kin_key"])
+    _guard_unscoped_law(
+        verdict,
+        body["conditions"] if body.get("conditions") is not None
+        else json.loads(row["when_json"] or "[]"),
+        _edit_kin.first_name if _edit_kin else row["kin_key"],
+        bool(body.get("confirm_universal_law")),
+    )
 
     await db.execute(
         "UPDATE kin_rules SET rule_text = ?, rule_why = ?, verdict = ?, when_json = ? "
@@ -4520,13 +5088,23 @@ def _discard_draft(draft_id: str, *, keep_frame: Optional[str]) -> None:
 
 
 @app.post("/api/reaction/draft")
-async def api_reaction_draft(_auth: dict = Depends(require_auth)):
+async def api_reaction_draft(request: Request, _auth: dict = Depends(require_auth)):
     """Open the drawer: pull ONE clip, index it, cut the strip from it.
 
     Strictly serial — we cannot thumbnail a beat before Gemini has named it. That
     buys one honest front-loaded wait, after which the wizard's first three steps
     run with no network at all.
+
+    An optional `text` in the body is Tim SEARCHING: "what I'm reacting to". It rides
+    into the same Gemini call as the clip, and comes back pointing at the one moment he
+    meant plus the emotions he's likely feeling. No text = the browse path, unchanged.
     """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    reacting_to = (body.get("text") or "").strip()[:300]
+
     active = await db.get_active_session()
     if not active:
         raise HTTPException(status_code=400, detail="No active session")
@@ -4565,6 +5143,7 @@ async def api_reaction_draft(_auth: dict = Depends(require_auth)):
             # and `theme` facets come back empty forever and nobody knows why.
             session_history=await build_session_history_for_gemini(active["id"]),
             media_resolution=media_res,
+            reacting_to=reacting_to,
         )
     except GeminiError as e:
         clip_path.unlink(missing_ok=True)
@@ -4606,6 +5185,7 @@ async def api_reaction_draft(_auth: dict = Depends(require_auth)):
         "clip_seconds": lookback,
         "playhead_sec": playhead_sec,
         "movie_title": plex.get("display_title") or plex.get("title") or "",
+        "query": reacting_to,
     }
 
     # The mood came from the FILM, not from Tim's reaction — Decision #12 holds.
@@ -4616,10 +5196,21 @@ async def api_reaction_draft(_auth: dict = Depends(require_auth)):
         _mark_full_scene_mood(draft["mood"])
     await _broadcast_cost(active["id"])
 
-    return JSONResponse({
+    return JSONResponse(_reaction_draft_payload(draft_id, _REACTION_DRAFTS[draft_id]))
+
+
+def _reaction_draft_payload(draft_id: str, draft: dict) -> dict[str, Any]:
+    """The drawer's view of a draft. Shared by /draft and /refine so a refined draft
+    is byte-for-byte the shape the wizard already renders."""
+    lookback = draft.get("clip_seconds") or 45
+    return {
         "draft_id": draft_id,
         "clip_seconds": lookback,
         "mood": draft["mood"],
+        # Echo the search, and where it landed. `matched` is null on the browse path or
+        # when his words matched nothing in the clip.
+        "query": draft.get("query", ""),
+        "matched": draft.get("matched"),
         "moments": [
             {
                 "key": m["key"],
@@ -4645,8 +5236,30 @@ async def api_reaction_draft(_auth: dict = Depends(require_auth)):
             for m in draft["moments"]
         ],
         "reads": draft["reads"],
+        # Quote tab: spoken lines heard in the clip. Each carries the key of its
+        # injected `writing` target (on `moment_key`), so picking one rides the same
+        # /sentences rails as any reaction. `moment_caption` = "which scene it was in".
+        "quotes": [
+            {
+                "text": q["text"],
+                "speaker": q["speaker"],
+                "moment_key": q["moment_key"],
+                "target_key": q["target_key"],
+                "moment_caption": _caption_for(draft, q["moment_key"]),
+            }
+            for q in draft.get("quotes", [])
+        ],
+        # Song tab: whether music is playing (+ the heard cue). The identified track,
+        # once looked up, is cached on the draft under "song".
+        "music": draft.get("music", {"playing": False, "cue": ""}),
+        "song": draft.get("song"),
         "emotions": _emotion_catalogue(),
-    })
+    }
+
+
+def _caption_for(draft: dict, moment_key: str) -> str:
+    m = next((x for x in draft.get("moments", []) if x["key"] == moment_key), None)
+    return (m or {}).get("caption", "")
 
 
 def _emotion_catalogue() -> dict[str, Any]:
@@ -4669,6 +5282,231 @@ def _emotion_catalogue() -> dict[str, Any]:
             for mood, emos in emotions.by_mood().items()
         ],
     }
+
+
+def _refresh_frames_for(draft: dict, clip_path: Path) -> None:
+    """After a refine re-indexes the SAME clip, the old thumbnails describe beats that no
+    longer exist. Drop them; the new frames are cut by the caller."""
+    for m in draft.get("moments", []):
+        fp = m.get("frame_path")
+        if fp:
+            try:
+                Path(fp).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+@app.post("/api/reaction/refine")
+async def api_reaction_refine(request: Request, _auth: dict = Depends(require_auth)):
+    """The MOMENT refine: reword and re-search the SAME cached clip.
+
+    Distinct from "search again", which pulls a fresh 45s — by which point the beat he
+    wanted has scrolled out of the window. This re-reads the clip already on disk, so the
+    seedbox is never touched and his moment stays in reach.
+    """
+    body = await request.json()
+    draft_id = (body.get("draft_id") or "").strip()
+    draft = _REACTION_DRAFTS.get(draft_id)
+    if not draft:
+        raise HTTPException(status_code=410, detail="That draft expired — reopen the drawer")
+    text = (body.get("text") or "").strip()[:300]
+    clip_path = Path(draft["clip_path"])
+    if not clip_path.exists():
+        raise HTTPException(status_code=410, detail="The clip is gone — reopen the drawer")
+
+    plex = plex_monitor.current_state() or {}
+    try:
+        fresh = await gemini_brain.reaction_draft(
+            clip_path,
+            clip_seconds=draft["clip_seconds"],
+            movie_title=draft.get("movie_title", ""),
+            movie_context=(plex.get("summary") or "")[:800],
+            session_history=await build_session_history_for_gemini(draft["session_id"]),
+            media_resolution=(await db.get_setting("media_resolution") or "low").lower(),
+            reacting_to=text,
+        )
+    except GeminiError as e:
+        log.exception("reaction refine failed")
+        raise HTTPException(status_code=502, detail=f"Couldn't re-read the scene: {e}")
+    if not fresh["moments"]:
+        raise HTTPException(status_code=502, detail="Nothing reactable found for that")
+
+    _refresh_frames_for(draft, clip_path)      # bin the old thumbnails
+    frames_dir = Path(settings.frames_dir)
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    results = await asyncio.gather(
+        *(extract_frame(str(clip_path), m["offset_ms"] / 1000.0, out_dir=frames_dir)
+          for m in fresh["moments"]),
+        return_exceptions=True,
+    )
+    for m, res in zip(fresh["moments"], results):
+        if isinstance(res, Exception):
+            m["frame_path"] = m["frame_url"] = None
+        else:
+            m["frame_path"] = str(res)
+            m["frame_url"] = f"/static/frames/{Path(res).name}"
+
+    # Update IN PLACE — same draft_id, same clip_path — so /sentences and /reaction hold.
+    draft.update({
+        "scene_description": fresh["scene_description"],
+        "mood": fresh["mood"],
+        "moments": fresh["moments"],
+        "reads": fresh["reads"],
+        "quotes": fresh.get("quotes", []),
+        "music": fresh.get("music", {"playing": False, "cue": ""}),
+        "matched": fresh.get("matched"),
+    })
+    draft.pop("song", None)   # re-indexed clip → any prior track-ID is stale
+    await _broadcast_cost(draft["session_id"])
+    return JSONResponse(_reaction_draft_payload(draft_id, draft))
+
+
+@app.post("/api/reaction/song")
+async def api_reaction_song(request: Request, _auth: dict = Depends(require_auth)):
+    """The Song tab: name the track reaction_draft heard, and inject it as a
+    `sound` target so 'React to this' rides the normal /sentences rails.
+
+    Lazy — fired only when the tab opens — and cached on the draft, so re-opening
+    it costs nothing. One grounded call (+~$0.035, +1 against the daily budget).
+    """
+    body = await request.json()
+    draft_id = (body.get("draft_id") or "").strip()
+    draft = _REACTION_DRAFTS.get(draft_id)
+    if not draft:
+        raise HTTPException(status_code=410, detail="That draft expired — reopen the drawer")
+
+    # Idempotent: a prior lookup on this draft is returned as-is.
+    if draft.get("song"):
+        return JSONResponse(draft["song"])
+
+    music = draft.get("music") or {}
+    if not music.get("playing"):
+        raise HTTPException(status_code=400, detail="No music is playing in this clip")
+    if not draft.get("moments"):
+        raise HTTPException(status_code=400, detail="Nothing to anchor a song reaction to")
+
+    plex = plex_monitor.current_state() or {}
+    playhead = draft.get("playhead_sec") or 0
+    ts_label = f"{int(playhead // 60)}:{int(playhead % 60):02d}"
+    try:
+        card = await gemini_brain.identify_song(
+            movie_title=draft.get("movie_title", ""),
+            movie_context=(plex.get("summary") or "")[:800],
+            cue=music.get("cue", ""),
+            timestamp_label=ts_label,
+        )
+    except GeminiError as e:
+        log.exception("identify_song failed")
+        raise HTTPException(status_code=502, detail=f"Couldn't identify the track: {e}")
+    await _broadcast_cost(draft["session_id"])
+
+    result: dict[str, Any] = {"found": bool(card.get("found"))}
+    if card.get("found"):
+        # Anchor on the most recent beat (closest to the tap); moments are sorted
+        # ascending by offset, so that's the last one. Inject a `sound` target with
+        # the fixed key "song" (replacing any stale one) — the drawer's emotion step
+        # then renders it with no new code, exactly like a search match.
+        beat = draft["moments"][-1]
+        beat["targets"] = [t for t in beat["targets"] if t["key"] != "song"]
+        title = card["title"]
+        artist = card.get("artist", "")
+        label = f"{title} — {artist}" if artist else title
+        note_bits = [f'The song "{title}"' + (f" by {artist}" if artist else "")]
+        if card.get("note"):
+            note_bits.append(card["note"])
+        song_target = {
+            "key": "song",
+            "label": label[:90],
+            "facet": "sound",
+            "note": " · ".join(note_bits)[:180],
+            "emotions": card.get("emotions", []),
+        }
+        beat["targets"].append(song_target)
+        result.update({
+            "card": {k: card[k] for k in
+                     ("title", "artist", "album", "year", "note", "source")},
+            "moment_key": beat["key"],
+            "target_key": "song",
+            # The client renders the drawer from its own draft snapshot (pulled before
+            # this lookup), so hand it the injected target to seed the emotion step.
+            "target": {k: song_target[k] for k in ("key", "label", "facet", "emotions")},
+        })
+    draft["song"] = result
+    return JSONResponse(result)
+
+
+@app.post("/api/reaction/retarget")
+async def api_reaction_retarget(request: Request, _auth: dict = Depends(require_auth)):
+    """The TARGET refine: 'no — his acting' → re-derive the things in this beat."""
+    body = await request.json()
+    draft = _REACTION_DRAFTS.get((body.get("draft_id") or "").strip())
+    if not draft:
+        raise HTTPException(status_code=410, detail="That draft expired — reopen the drawer")
+    moment = next((m for m in draft["moments"] if m["key"] == body.get("moment")), None)
+    if not moment:
+        raise HTTPException(status_code=400, detail="Unknown moment")
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Say what you're reacting to")
+
+    try:
+        fresh = await gemini_brain.reaction_retarget(
+            scene_description=draft["scene_description"],
+            moment_caption=moment["caption"],
+            moment_why=moment["why"],
+            steer=text,
+            movie_title=draft.get("movie_title", ""),
+        )
+    except GeminiError as e:
+        log.exception("reaction retarget failed")
+        raise HTTPException(status_code=502, detail=f"Couldn't re-read the beat: {e}")
+
+    # New keys, keyed off the moment; the catch-all is always re-appended so he is never
+    # stuck when none of the named targets is the thing he meant.
+    targets = []
+    for j, t in enumerate(fresh):
+        targets.append({**t, "key": f"{moment['key']}rt{j}"})
+    targets.append({"key": moment["key"] + "tall", "label": "just… all of it",
+                    "facet": "story", "note": "The whole beat.", "emotions": []})
+    moment["targets"] = targets
+    await _broadcast_cost(draft["session_id"])
+    return JSONResponse({"targets": [
+        {"key": t["key"], "label": t["label"], "facet": t["facet"], "emotions": t["emotions"]}
+        for t in targets
+    ]})
+
+
+@app.post("/api/reaction/reemote")
+async def api_reaction_reemote(request: Request, _auth: dict = Depends(require_auth)):
+    """The EMOJI refine: 'more nervous than scared' → re-rank the feelings for this target."""
+    body = await request.json()
+    draft = _REACTION_DRAFTS.get((body.get("draft_id") or "").strip())
+    if not draft:
+        raise HTTPException(status_code=410, detail="That draft expired — reopen the drawer")
+    moment = next((m for m in draft["moments"] if m["key"] == body.get("moment")), None)
+    target = (next((t for t in moment["targets"] if t["key"] == body.get("target")), None)
+              if moment else None)
+    if not target:
+        raise HTTPException(status_code=400, detail="Unknown target")
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Say how it felt")
+
+    try:
+        keys = await gemini_brain.reaction_reemote(
+            scene_description=draft["scene_description"],
+            moment_caption=moment["caption"],
+            target_label=target["label"],
+            target_facet=target["facet"],
+            steer=text,
+        )
+    except GeminiError as e:
+        log.exception("reaction reemote failed")
+        raise HTTPException(status_code=502, detail=f"Couldn't re-read the feeling: {e}")
+
+    target["emotions"] = keys      # mutate in place so /sentences resolves them
+    await _broadcast_cost(draft["session_id"])
+    return JSONResponse({"emotions": keys})
 
 
 @app.post("/api/reaction/sentences")
@@ -4699,6 +5537,9 @@ async def api_reaction_sentences(request: Request, _auth: dict = Depends(require
             target_facet=target["facet"],
             emotion_key=emotion_key,
             movie_title=draft["movie_title"],
+            intensity=int(body.get("intensity") or 2),
+            shade=(body.get("shade") or "").strip(),
+            steer=(body.get("steer") or "").strip(),
         )
     except GeminiError as e:
         log.exception("reaction sentences failed")
@@ -4734,6 +5575,8 @@ async def api_send_reaction(request: Request, _auth: dict = Depends(require_auth
     if not first_person:
         raise HTTPException(status_code=400, detail="No reaction text")
 
+    intensity_level = emotions.intensity(body.get("intensity") or 2)["level"]
+
     # The line Tim READ AND CHOSE is the line that goes to the room, verbatim.
     # First person, because that is the convention for Tim's own actions in an
     # outgoing Kindroid payload — "I" is the sender, and the sender is Tim. (The
@@ -4755,7 +5598,9 @@ async def api_send_reaction(request: Request, _auth: dict = Depends(require_auth
             # carried a picture. Stored as a URL, matching the live-photo rows the
             # renderer already knows how to draw.
             moment.get("frame_url"),
-            f"{target['facet']}:{target['label']}",
+            # facet:label:intensity — the level rides along so the row remembers how hard
+            # it hit, parsed leniently on read (older rows have no third segment).
+            f"{target['facet']}:{target['label']}:{intensity_level}",
             emotion.key,
             msg_id,
         ),
@@ -5256,6 +6101,48 @@ async def ws_endpoint(websocket: WebSocket):
 # Families: fear, tension, kinetic, wonder, levity, warmth, sorrow — plus `none` (no film).
 _ART_DIR = Path("static/mood")
 
+
+
+@app.get("/api/plex/sessions")
+async def api_plex_sessions(_auth: dict = Depends(require_auth)):
+    """Everything Plex is offering, and which one we're following.
+
+    More than one candidate means WE ARE GUESSING. Tim gets asked instead of finding out an
+    hour later that the app was watching a different episode than he was.
+    """
+    cands = plex_monitor.candidates()
+    now = plex_monitor.current_state() or {}
+    return JSONResponse({
+        "sessions": [
+            {
+                "rating_key": c.get("rating_key"),
+                "title": c.get("display_title") or c.get("title"),
+                "state": c.get("state"),
+                "player": c.get("player_name") or c.get("player_product") or "",
+                "thumb": c.get("thumb"),
+                "view_offset_ms": c.get("view_offset_ms"),
+                "duration_ms": c.get("duration_ms"),
+                "current": c.get("rating_key") == now.get("rating_key"),
+            }
+            for c in cands
+        ],
+        "pinned": plex_monitor.pinned(),
+        "ambiguous": len(cands) > 1,
+    })
+
+
+@app.post("/api/plex/pick")
+async def api_plex_pick(request: Request, _auth: dict = Depends(require_auth)):
+    """Tim says WHICH ONE. That settles it — no heuristic gets a vote after this.
+
+    `rating_key: null` un-pins and hands the choice back to the guesswork.
+    """
+    body = await request.json()
+    key = body.get("rating_key")
+    plex_monitor.pin(str(key) if key else None)
+    await db.set_setting("plex_pinned", str(key) if key else "")
+    await manager.broadcast({"type": "refresh"})
+    return JSONResponse({"ok": True, "pinned": plex_monitor.pinned()})
 
 @app.get("/api/mood-art")
 async def api_mood_art():
