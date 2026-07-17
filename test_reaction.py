@@ -235,5 +235,45 @@ _score_draft = {"song": {"card": {"title": "Time", "artist": "Hans Zimmer", "not
 sc = app._reaction_line_with_song(_score_draft, {"key": "song"}, "goosebumps")
 check("instrumental: names it, no lyric", 'Time' in sc and 'Hans Zimmer' in sc and 'line from it' not in sc, sc)
 
+print("\n=== QUOTE SEARCH: find a line in the clip, verbatim; empty is honest ===")
+_qclip = Path(tempfile.gettempdir()) / "quote_test_clip.mp4"
+_qclip.write_bytes(b"\x00\x01\x02fake")
+g, calls = _song_brain({
+    "find_quote": {"quotes": [
+        {"text": "Do you find me sadistic?", "speaker": "Bill", "offset_ms": 12000},
+        {"text": "", "speaker": "x", "offset_ms": 1},          # blank dropped
+        {"text": "No, kiddo", "speaker": "", "offset_ms": 999999},  # wild offset clamps
+    ]},
+})
+res = asyncio.run(g.find_quote(_qclip, query="something sadistic", clip_seconds=45, movie_title="Kill Bill"))
+check("used the find_quote call", calls == ["find_quote"], str(calls))
+check("returns the line VERBATIM", res[0]["text"] == "Do you find me sadistic?", str(res))
+check("keeps the speaker", res[0]["speaker"] == "Bill", str(res))
+check("drops the blank line", all(r["text"] for r in res), str(res))
+check("clamps a wild offset into the clip", res[-1]["offset_ms"] <= 45000, str(res))
+g2, _ = _song_brain({"find_quote": {"quotes": []}})
+none = asyncio.run(g2.find_quote(_qclip, query="a purple elephant", clip_seconds=45))
+check("no match returns empty (never invents)", none == [], str(none))
+_qclip.unlink(missing_ok=True)
+
+print("\n=== INJECT QUOTES: searched lines slot in as reactable targets ===")
+_idraft = {"moments": [
+    {"key": "m0", "offset_ms": 5000, "targets": [{"key": "m0t0"}]},
+    {"key": "m1", "offset_ms": 40000, "targets": [{"key": "m1t0"}]},
+], "quotes": [{"text": "already here", "speaker": "Y", "moment_key": "m1", "target_key": "m1quote0"}]}
+n = app._inject_quotes(_idraft, [
+    {"text": "Do you find me sadistic?", "speaker": "Bill", "offset_ms": 11000},
+    {"text": "ALREADY HERE", "speaker": "dup", "offset_ms": 0},   # case-insensitive dup dropped
+])
+check("added exactly the new line", n == 1, str(n))
+check("anchored to the nearest beat by offset", _idraft["quotes"][0]["moment_key"] == "m0", str(_idraft["quotes"][0]))
+check("searched line is prepended (shows first)", _idraft["quotes"][0]["text"] == "Do you find me sadistic?", str(_idraft["quotes"][0]))
+_inj = next(t for t in _idraft["moments"][0]["targets"] if t["key"] != "m0t0")
+check("injected target facet is writing", _inj["facet"] == "writing", str(_inj))
+check("injected key is foreign (contains 'quote')", "quote" in _inj["key"], _inj["key"])
+check("note carries speaker + verbatim line", "Bill" in _inj["note"] and "sadistic" in _inj["note"], _inj["note"])
+_qline = app._reaction_line_with_quote(_idraft, {"key": _inj["key"]}, "I lost it")
+check("the searched quote ships to the room verbatim", "Do you find me sadistic?" in _qline, _qline)
+
 print("\n" + ("ALL PASS" if ok else "FAILURES ABOVE"))
 sys.exit(0 if ok else 1)

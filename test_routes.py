@@ -50,6 +50,7 @@ EXPECTED = {
     ("/api/reaction/refine", "POST"): "api_reaction_refine",
     ("/api/reaction/retarget", "POST"): "api_reaction_retarget",
     ("/api/reaction/reemote", "POST"): "api_reaction_reemote",
+    ("/api/reaction/quote-search", "POST"): "api_reaction_quote_search",
     ("/api/rules/{rule_id}", "PUT"): "api_edit_rule",
     ("/api/rules/{rule_id}", "DELETE"): "api_delete_rule",
     ("/api/facts", "GET"): "api_facts",

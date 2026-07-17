@@ -6119,6 +6119,19 @@
         rerenderMessage(msg);
     }
 
+    // Pin every bubble currently on screen at its present open/closed state, so a
+    // later change to who you're addressing can't reshuffle the transcript under
+    // you. Messages that already carry a manual override keep it; new messages
+    // (future ids) stay unpinned, so they still follow the live addressing rule.
+    // MUST be called BEFORE state.addressed changes — it reads the current rule.
+    function freezeBubbleStates() {
+        for (const m of state.messages) {
+            if (m && m.id != null && m.character_key && !_msgOpen.has(m.id)) {
+                _msgOpen.set(m.id, msgIsOpen(m));
+            }
+        }
+    }
+
     // Have we already nudged the room drawer open for an empty room? Once only —
     // otherwise every snapshot would re-open a drawer the user just closed.
     let _roomDrawerNudged = false;
@@ -6438,6 +6451,13 @@
     }
 
     function toggleAddressed(key) {
+        // Freeze the transcript exactly as it looks RIGHT NOW, before the rule
+        // changes. Switching who you're talking to should only steer what happens
+        // NEXT — the messages already on screen keep the state they're in. (This
+        // reverses the old behaviour, which cleared every override and re-folded the
+        // whole transcript, yanking bubbles open or shut under you on every switch.)
+        freezeBubbleStates();
+
         // An empty addressed set means "the whole room", so materialise it before
         // removing anyone — otherwise deselecting one person would silently
         // re-address everybody.
@@ -6452,12 +6472,9 @@
         }
         saveKinList('addressed_kins', state.addressed);
         renderRoomDrawer();
-        // Who you're talking to IS the open/closed rule — so switching it has to
-        // re-fold the transcript. Drop the per-message overrides: you've just
-        // restated what you want to see, and stale taps would fight the new rule.
-        _msgOpen.clear();
-        renderAllMessages();
-        applyActiveCharacter();
+        // Forward-going behaviour only — the frozen transcript stays put, and new
+        // messages follow the new addressing because they aren't pinned.
+        applyActiveCharacter(null, { skipRerender: true });
     }
 
     function toggleRoomDrawer() {
@@ -6720,7 +6737,8 @@
 
     // Update everything that names the active character + gate the cannabis
     // UI (it's romantic/Eli-only). Called on load and on dropdown change.
-    function applyActiveCharacter(key) {
+    function applyActiveCharacter(key, opts) {
+        opts = opts || {};
         if (key) state.activeCharKey = key;
         const c = state.characters.find(x => x.key === state.activeCharKey);
         if (c) {
@@ -6745,7 +6763,10 @@
             if (node) node.style.display = showVibe ? '' : 'none';
         });
         updateInputAvailability();
-        renderAllMessages();
+        // A speaker change (toggleAddressed) passes skipRerender: it only wants the
+        // forward-going behaviour above — the label, the mic, who the next message is
+        // for — and must NOT re-fold the transcript already on screen.
+        if (!opts.skipRerender) renderAllMessages();
     }
 
     function syncSettingsUI() {
@@ -7273,6 +7294,23 @@
             }
         } catch (e) { RX.loading = false; return renderDrawerError('Network error on refine.'); }
         RX.loading = false; renderDrawer();
+    }
+
+    // QUOTE search — "he said something about jesus" re-hears the SAME cached clip
+    // and pulls the exact line(s). Matches land at the top of the Quote list.
+    async function quoteSearch(text) {
+        refineWait('listening for that line…');
+        RX.loading = true;
+        try {
+            const res = await fetch('/api/reaction/quote-search', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ draft_id: RX.draft.draft_id, text }),
+            });
+            if (!res.ok) { const j = await res.json().catch(() => ({}));
+                RX.loading = false; return renderDrawerError(j.detail || 'Quote search failed.'); }
+            RX.draft = await res.json();
+        } catch (e) { RX.loading = false; return renderDrawerError('Network error searching the clip.'); }
+        RX.loading = false; RX.tab = 'quote'; renderDrawer();
     }
 
     // TARGET refine — "no, his acting" re-derives the things in this beat, steered.
@@ -7845,10 +7883,18 @@
     // emotion → intensity → sentence tail. No dialogue (e.g. All Is Lost) → nothing
     // to react to, and we say so rather than showing an empty list.
     function renderQuotes(b) {
+        // Search the clip's dialogue for a line you half-remember — "he said
+        // something about jesus" — and the AI re-hears the clip and pulls the exact
+        // words. Sits on top of the browse list, first-class like every other stage.
+        b.appendChild(refineBox('he said something about… — search the clip', quoteSearch));
+        if (RX.draft && RX.draft.quote_matched === 0 && RX.draft.quote_query) {
+            b.appendChild(el('div', { class: 'song-cue',
+                text: 'Couldn’t find “' + RX.draft.quote_query + '” in this clip.' }));
+        }
         const quotes = (RX.draft && RX.draft.quotes) || [];
         if (!quotes.length) {
             b.appendChild(el('div', { class: 'drawer-error',
-                text: 'No dialogue in the last 45 seconds — nothing to quote here.' }));
+                text: 'No dialogue caught here yet — search for a line above.' }));
             return;
         }
         b.appendChild(el('div', { class: 'step-label', text: 'pick a line' }));

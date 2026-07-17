@@ -5281,6 +5281,52 @@ def _caption_for(draft: dict, moment_key: str) -> str:
     return (m or {}).get("caption", "")
 
 
+def _inject_quotes(draft: dict, found: list[dict]) -> int:
+    """Attach searched lines to the draft as `writing` targets, exactly like the
+    quotes reaction_draft finds on its own — so picking one rides the same rails
+    (the tsearch trick) and `_reaction_line_with_quote` ships it to the room.
+
+    Each new line hangs on its nearest existing beat, deduped against lines already
+    on the draft (case-insensitive) so re-searching doesn't pile up copies. Matches
+    are prepended to `draft["quotes"]` so they surface at the top of the tab. The
+    key CONTAINS "quote" on purpose — that's how `isForeignTarget` keeps it out of
+    the Reaction tab's category lists. Returns how many new lines were added.
+    """
+    moments = draft.get("moments") or []
+    if not moments:
+        return 0
+    seen = {(q.get("text") or "").strip().lower() for q in draft.get("quotes", [])}
+    added: list[dict] = []
+    for q in found:
+        text = (q.get("text") or "").strip()
+        if not text or text.lower() in seen:
+            continue
+        want = q.get("offset_ms") or 0
+        beat = min(moments, key=lambda m: abs(m["offset_ms"] - want))
+        speaker = (q.get("speaker") or "").strip()
+        who = speaker or "someone off screen"
+        # len(targets) as the suffix keeps the key unique on this beat across repeat
+        # searches (targets only ever grow), and "quote" in it flags it as foreign.
+        tkey = f"{beat['key']}quotefind{len(beat['targets'])}"
+        beat["targets"].append({
+            "key": tkey,
+            "label": f'"{text}"'[:90],
+            "facet": "writing",
+            "note": f'Spoken by {who}: "{text}"'[:180],
+            "emotions": [],
+        })
+        added.append({
+            "text": text[:240],
+            "speaker": speaker[:60],
+            "moment_key": beat["key"],
+            "target_key": tkey,
+        })
+        seen.add(text.lower())
+    if added:
+        draft["quotes"] = added + list(draft.get("quotes", []))
+    return len(added)
+
+
 def _reaction_line_with_quote(draft: dict, target: dict, first_person: str) -> str:
     """Ride the exact spoken words into the narration when a reaction is on a QUOTE.
 
@@ -5511,6 +5557,51 @@ async def api_reaction_song(request: Request, _auth: dict = Depends(require_auth
         })
     draft["song"] = result
     return JSONResponse(result)
+
+
+@app.post("/api/reaction/quote-search")
+async def api_reaction_quote_search(request: Request, _auth: dict = Depends(require_auth)):
+    """The Quote tab's search: find a specific spoken line in the cached clip.
+
+    reaction_draft only surfaces the few most notable quotes; this hunts the exact
+    line Tim half-remembers ("he said something about jesus") by re-hearing the SAME
+    clip on disk — the seedbox is never touched — and injects any matches as quote
+    targets so they slot straight into the Quote list and the reaction flow.
+    """
+    body = await request.json()
+    draft_id = (body.get("draft_id") or "").strip()
+    draft = _REACTION_DRAFTS.get(draft_id)
+    if not draft:
+        raise HTTPException(status_code=410, detail="That draft expired — reopen the drawer")
+    text = (body.get("text") or "").strip()[:300]
+    if not text:
+        raise HTTPException(status_code=400, detail="Type what was said")
+    clip_ref = draft.get("clip_path")
+    clip_path = Path(clip_ref) if clip_ref else None
+    if not (clip_path and clip_path.exists()):
+        raise HTTPException(status_code=410, detail="The clip is gone — reopen the drawer")
+    if not draft.get("moments"):
+        raise HTTPException(status_code=400, detail="Nothing to anchor a quote to")
+
+    plex = plex_monitor.current_state() or {}
+    try:
+        found = await gemini_brain.find_quote(
+            clip_path,
+            query=text,
+            clip_seconds=draft["clip_seconds"],
+            movie_title=draft.get("movie_title", ""),
+            movie_context=(plex.get("summary") or "")[:800],
+        )
+    except GeminiError as e:
+        log.exception("find_quote failed")
+        raise HTTPException(status_code=502, detail=f"Couldn't search the clip: {e}")
+    await _broadcast_cost(draft["session_id"])
+
+    matched = _inject_quotes(draft, found)
+    payload = _reaction_draft_payload(draft_id, draft)
+    payload["quote_matched"] = matched
+    payload["quote_query"] = text
+    return JSONResponse(payload)
 
 
 @app.post("/api/reaction/retarget")

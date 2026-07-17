@@ -2487,6 +2487,109 @@ Return ONLY the JSON object, nothing else.
             log.warning("identify_song: failed to parse grounded JSON — returning found=false")
         return card
 
+    # ─── Quote tab: search the clip's dialogue for a specific line ──
+    async def find_quote(
+        self,
+        clip_path: Path,
+        *,
+        query: str,
+        clip_seconds: int,
+        movie_title: str = "",
+        movie_context: str = "",
+    ) -> list[dict[str, Any]]:
+        """Hunt the clip for a line the viewer half-remembers.
+
+        `reaction_draft` surfaces only the few most notable quotes; this re-hears the
+        SAME cached clip to find a SPECIFIC one ("he said something about jesus") and
+        returns it VERBATIM with who said it and roughly when. Multimodal — it has to
+        listen to the dialogue, not guess from a description. Returns a (possibly
+        empty) list of {text, speaker, offset_ms}; empty is a legitimate "not in the
+        clip", never an invented line.
+        """
+        self._ensure_client()
+        clip_bytes = await asyncio.to_thread(clip_path.read_bytes)
+        use_inline = len(clip_bytes) <= self.INLINE_LIMIT_BYTES
+
+        uploaded: Any = None
+        try:
+            if use_inline:
+                media_part = types.Part.from_bytes(data=clip_bytes, mime_type="video/mp4")
+            else:
+                uploaded = await self._upload_clip(clip_path)
+                media_part = uploaded
+
+            schema = {
+                "type": "object",
+                "properties": {
+                    "quotes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": {"type": "string", "description": "The line VERBATIM, exactly as spoken — no paraphrase, no cleanup."},
+                                "speaker": {"type": "string", "description": "Who says it, if identifiable from the clip; else empty."},
+                                "offset_ms": {"type": "integer", "description": "Roughly when it's said, ms from the start of this clip."},
+                            },
+                            "required": ["text", "speaker", "offset_ms"],
+                        },
+                    },
+                },
+                "required": ["quotes"],
+            }
+
+            parts = [f"This clip is the last {clip_seconds} seconds of {movie_title or 'a film'}."]
+            if movie_context.strip():
+                parts.append(f"\nWhat this film is:\n{movie_context.strip()[:800]}")
+            parts.append(
+                "\nThe viewer is looking for a line of dialogue they half-remember, in their words:\n"
+                f'  "{query.strip()[:300]}"\n'
+                "Listen to the clip and find the EXACT line(s) that match what they mean — "
+                "transcribe VERBATIM, name the speaker if you can, and give the offset. Return up "
+                "to 4, best match first. If nothing spoken in the clip matches, return an empty "
+                "list — never invent, paraphrase, or force an unrelated line."
+            )
+
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=schema,
+                temperature=0.2,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
+            )
+            response = await self._call_with_retry(
+                [media_part, "\n".join(parts)], config, "find_quote", model=self.draft_model,
+            )
+            await self._track_call(
+                response, call_type="find_quote", model=self.draft_model, grounded=False,
+            )
+
+            raw = (response.text or "").strip()
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                log.warning("find_quote: non-JSON reply — returning no matches")
+                return []
+
+            clip_ms = int(clip_seconds * 1000)
+            out: list[dict[str, Any]] = []
+            for q in (parsed.get("quotes") or [])[:4]:
+                text = (q.get("text") or "").strip()[:240]
+                if not text:
+                    continue
+                try:
+                    off = max(0, min(clip_ms, int(q.get("offset_ms") or 0)))
+                except (TypeError, ValueError):
+                    off = 0
+                out.append({
+                    "text": text,
+                    "speaker": (q.get("speaker") or "").strip()[:60],
+                    "offset_ms": off,
+                })
+            return out
+        finally:
+            if uploaded is not None:
+                await self._delete_file(uploaded)
+
     # ─── Reaction drawer: the finished sentences ────────────────
     async def reaction_sentences(
         self,
