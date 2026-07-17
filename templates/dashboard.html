@@ -1288,6 +1288,10 @@
         .song-title { font-size: 1.15rem; font-weight: 800; color: var(--text-primary); line-height: 1.25; }
         .song-artist { margin-top: 3px; color: var(--text-secondary); font-size: 0.95rem; font-weight: 600; }
         .song-meta { margin-top: 6px; color: var(--text-muted); font-size: 0.82rem; }
+        .song-lyric {
+            margin-top: 12px; padding-left: 12px; border-left: 3px solid var(--accent);
+            color: var(--text-primary); font-size: 0.95rem; font-style: italic; line-height: 1.45;
+        }
         .song-note { margin-top: 10px; color: var(--text-secondary); font-size: 0.88rem; line-height: 1.4; }
         .song-src { margin-top: 8px; color: var(--text-muted); font-size: 0.74rem; }
         .song-react { width: 100%; margin-top: 12px; padding: 12px; font-weight: 700; }
@@ -7875,11 +7879,10 @@
     // into the normal flow via a `sound` target injected server-side.
     function renderSong(b) {
         const music = (RX.draft && RX.draft.music) || {};
-        if (!music.playing) {
-            b.appendChild(el('div', { class: 'drawer-error',
-                text: 'No music playing right now — nothing to react to.' }));
-            return;
-        }
+        // No hard "is music playing?" gate here anymore. That flag comes from the
+        // visuals-first draft pass, which files a score cue under dialogue as sound
+        // design and misses it — so we let the backend LISTEN to the clip and decide,
+        // rather than refusing to look. A true miss falls through to "couldn't pin it".
         if (RX.songLoading) {
             b.appendChild(el('div', { class: 'song-wait', text: 'Identifying the track…' }));
             return;
@@ -7900,6 +7903,7 @@
         if (c.artist) card.appendChild(el('div', { class: 'song-artist', text: c.artist }));
         const meta = [c.album, c.year].filter(Boolean).join(' · ');
         if (meta) card.appendChild(el('div', { class: 'song-meta', text: meta }));
+        if (c.lyric) card.appendChild(el('div', { class: 'song-lyric', text: '“' + c.lyric + '”' }));
         if (c.note) card.appendChild(el('div', { class: 'song-note', text: c.note }));
         if (c.source) card.appendChild(el('div', { class: 'song-src', text: 'via ' + c.source }));
         b.appendChild(card);

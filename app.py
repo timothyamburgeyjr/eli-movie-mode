@@ -5301,6 +5301,32 @@ def _reaction_line_with_quote(draft: dict, target: dict, first_person: str) -> s
     return f'{first_person} — reacting to {attribution}: "{line}"'
 
 
+def _reaction_line_with_song(draft: dict, target: dict, first_person: str) -> str:
+    """Ride the TRACK into the narration when a reaction is on the identified song.
+
+    Without this the room hears "god I love this" and has no idea what music moved
+    him — it can't name the song back, talk about it, or catch the lyric. So when
+    the target is the injected `song` target, hand the kins the whole card: the
+    title + artist, one line about the music itself, and a memorable lyric when the
+    lookup found one. Non-song targets fall straight through.
+    """
+    if target.get("key") != "song":
+        return first_person
+    card = (draft.get("song") or {}).get("card") or {}
+    title = (card.get("title") or "").strip()
+    if not title:
+        return first_person
+    artist = (card.get("artist") or "").strip()
+    bits = [f'the track playing — "{title}"' + (f" by {artist}" if artist else "")]
+    note = (card.get("note") or "").strip()
+    if note:
+        bits.append(note)
+    lyric = (card.get("lyric") or "").strip()
+    if lyric:
+        bits.append(f'a line from it: "{lyric}"')
+    return f'{first_person} — reacting to {"; ".join(bits)}'
+
+
 def _emotion_catalogue() -> dict[str, Any]:
     """The whole thesaurus, once, so the client can render any key the draft ranks
     and also browse "all emotions" without another round trip."""
@@ -5462,17 +5488,21 @@ async def api_reaction_song(request: Request, _auth: dict = Depends(require_auth
         note_bits = [f'The song "{title}"' + (f" by {artist}" if artist else "")]
         if card.get("note"):
             note_bits.append(card["note"])
+        # The lyric rides in the note too, so the sentence writer can lean on the
+        # actual words — not just the title. (Capped hard; the note feeds a prompt.)
+        if card.get("lyric"):
+            note_bits.append(f'a line: "{card["lyric"]}"')
         song_target = {
             "key": "song",
             "label": label[:90],
             "facet": "sound",
-            "note": " · ".join(note_bits)[:180],
+            "note": " · ".join(note_bits)[:280],
             "emotions": card.get("emotions", []),
         }
         beat["targets"].append(song_target)
         result.update({
             "card": {k: card[k] for k in
-                     ("title", "artist", "album", "year", "note", "source")},
+                     ("title", "artist", "album", "year", "note", "source", "lyric")},
             "moment_key": beat["key"],
             "target_key": "song",
             # The client renders the drawer from its own draft snapshot (pulled before
@@ -5632,10 +5662,12 @@ async def api_send_reaction(request: Request, _auth: dict = Depends(require_auth
     # `_run_relay` about the guard that briefly, wrongly, rewrote these.)
     aim_at = (body.get("aim_at") or "").strip() or None
 
-    # If he's reacting to a QUOTED line, the kins need the line itself — the same
-    # way a rating fine-tune hands them the exact thing being judged. Without it
-    # they hear "I froze" and have no idea WHICH line froze him.
+    # If he's reacting to a QUOTED line or an identified SONG, the kins need the
+    # thing itself — the same way a rating fine-tune hands them what's being judged.
+    # Otherwise they hear "I froze" / "I love this" and have no idea what to. These
+    # are mutually exclusive targets, so chaining is safe: each is a no-op off-target.
     reaction_line = _reaction_line_with_quote(draft, target, first_person)
+    reaction_line = _reaction_line_with_song(draft, target, reaction_line)
 
     content = f"{emotion.emoji} {first_person}"
     msg_id = await db.add_message(active["id"], "reaction", content)

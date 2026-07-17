@@ -2215,7 +2215,7 @@ Return ONLY the JSON object, nothing else.
     # ─── Song tab: name the track that's actually playing ───────
     _SONG_EMPTY = {
         "found": False, "title": "", "artist": "", "album": "",
-        "year": "", "note": "", "source": "", "emotions": [],
+        "year": "", "note": "", "source": "", "lyric": "", "emotions": [],
     }
 
     async def identify_song(
@@ -2443,8 +2443,9 @@ Output STRICT JSON only, no markdown fences, exactly this shape:
   "artist": "<performing artist or, for score, the composer>",
   "album": "<album or soundtrack name, or empty>",
   "year": "<release year, or empty>",
-  "note": "<one line: where/why it's used in this film, or what it is>",
+  "note": "<one line about the MUSIC itself: what it is, where/why it's used in this film, what makes it land>",
   "source": "<the site your identification rests on, e.g. 'Tunefind', 'IMDb soundtrack'>",
+  "lyric": "<one short, genuinely memorable line of the actual lyrics — verbatim, under 120 chars. EMPTY for an instrumental or score cue with no lyrics. Never invent or paraphrase a lyric.>",
   "emotions": ["<emotion keys a viewer might feel about this track, ranked; keys only, from the list below>"]
 }}
 
@@ -2479,6 +2480,7 @@ Return ONLY the JSON object, nothing else.
                     "year": str(parsed.get("year") or "").strip()[:12],
                     "note": str(parsed.get("note") or "").strip()[:200],
                     "source": str(parsed.get("source") or "").strip()[:80],
+                    "lyric": str(parsed.get("lyric") or "").strip()[:120],
                     "emotions": keys,
                 }
         except (json.JSONDecodeError, TypeError, ValueError):

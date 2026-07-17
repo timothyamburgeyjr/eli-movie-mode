@@ -137,17 +137,18 @@ def _song_brain(by_name):
 _clip = Path(tempfile.gettempdir()) / "song_test_clip.mp4"
 _clip.write_bytes(b"\x00\x01\x02fake-mp4-bytes")
 
-# 1) The ear names it; the search confirms and enriches → found, with album/year.
+# 1) The ear names it; the search confirms, enriches, and quotes a lyric → found.
 g, calls = _song_brain({
     "identify_song_listen": {"music_present": True, "title": "Tiny Dancer", "artist": "Elton John",
                              "confidence": "high", "cue": "piano ballad, male vocal"},
     "identify_song": {"found": True, "title": "Tiny Dancer", "artist": "Elton John",
                       "album": "Madman Across the Water", "year": "1971", "note": "the bus singalong",
-                      "source": "Tunefind", "emotions": ["moved"]},
+                      "source": "Tunefind", "lyric": "Hold me closer, tiny dancer", "emotions": ["moved"]},
 })
 card = asyncio.run(g.identify_song(clip_path=_clip, movie_title="Almost Famous"))
 check("listened BEFORE grounding", calls == ["identify_song_listen", "identify_song"], str(calls))
 check("found and enriched from search", card["found"] and card["album"] == "Madman Across the Water", str(card))
+check("carries a memorable lyric", card["lyric"] == "Hold me closer, tiny dancer", str(card))
 
 # 2) The ear is sure but the GROUNDED pass errors → return the ear's track, not a 502.
 g, calls = _song_brain({
@@ -214,6 +215,25 @@ check("a non-quote target is untouched", plain == "that shot floored me", plain)
 # An empty quote text is treated as no quote.
 empty = app._reaction_line_with_quote(_draft, {"key": "m1q1"}, "wow")
 check("an empty quote line is ignored", empty == "wow", empty)
+
+print("\n=== SONG REACTION: the track, a word on the music, and a lyric ride to the room ===")
+_song_draft = {"song": {"card": {
+    "title": "Tiny Dancer", "artist": "Elton John",
+    "note": "the tour-bus singalong that thaws the whole band",
+    "lyric": "Hold me closer, tiny dancer",
+}}}
+s = app._reaction_line_with_song(_song_draft, {"key": "song"}, "I got chills")
+check("keeps his sentence", s.startswith("I got chills"), s)
+check("names the track + artist", 'Tiny Dancer' in s and 'Elton John' in s, s)
+check("says something about the music", 'tour-bus singalong' in s, s)
+check("quotes the lyric", 'Hold me closer, tiny dancer' in s, s)
+# A non-song target is untouched.
+plain_s = app._reaction_line_with_song(_song_draft, {"key": "m1t0"}, "nice shot")
+check("a non-song target is untouched", plain_s == "nice shot", plain_s)
+# A score cue with no lyric still names the track, just no quote.
+_score_draft = {"song": {"card": {"title": "Time", "artist": "Hans Zimmer", "note": "the ascending ostinato", "lyric": ""}}}
+sc = app._reaction_line_with_song(_score_draft, {"key": "song"}, "goosebumps")
+check("instrumental: names it, no lyric", 'Time' in sc and 'Hans Zimmer' in sc and 'line from it' not in sc, sc)
 
 print("\n" + ("ALL PASS" if ok else "FAILURES ABOVE"))
 sys.exit(0 if ok else 1)
