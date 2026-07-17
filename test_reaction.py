@@ -10,7 +10,9 @@ deterministic and free.
 import asyncio
 import json
 import sys
+import tempfile
 import types as _t
+from pathlib import Path
 from unittest import mock
 
 import gemini_brain
@@ -102,6 +104,91 @@ check("REACTION_DRAFT_SYSTEM_PROMPT demands a target per character",
       "each character clearly on screen" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT.lower()
       or "EACH character" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
 check("...and the story beat", "STORY BEAT" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
+
+print("\n=== SONG: listen to the clip first, then verify; degrade gracefully ===")
+
+
+def _song_brain(by_name):
+    """A GeminiBrain whose model calls are dispatched by call NAME, so the two-pass
+    song lookup (listen → ground) can return a different reply for each pass, or raise."""
+    g = gemini_brain.GeminiBrain.__new__(gemini_brain.GeminiBrain)
+    g.text_model = "stub"
+    g.draft_model = "stub"
+    g._ensure_client = lambda: None
+    calls = []
+
+    async def fake_call(parts, config, name, model=None):
+        calls.append(name)
+        payload = by_name.get(name)
+        if isinstance(payload, Exception):
+            raise payload
+        return _t.SimpleNamespace(text=json.dumps(payload))
+
+    async def fake_track(response, **kw):
+        return {}
+
+    g._call_with_retry = fake_call
+    g._track_call = fake_track
+    return g, calls
+
+
+# A tiny on-disk clip so the listen pass has bytes to read (well under the inline
+# limit, so no upload path is exercised).
+_clip = Path(tempfile.gettempdir()) / "song_test_clip.mp4"
+_clip.write_bytes(b"\x00\x01\x02fake-mp4-bytes")
+
+# 1) The ear names it; the search confirms and enriches → found, with album/year.
+g, calls = _song_brain({
+    "identify_song_listen": {"music_present": True, "title": "Tiny Dancer", "artist": "Elton John",
+                             "confidence": "high", "cue": "piano ballad, male vocal"},
+    "identify_song": {"found": True, "title": "Tiny Dancer", "artist": "Elton John",
+                      "album": "Madman Across the Water", "year": "1971", "note": "the bus singalong",
+                      "source": "Tunefind", "emotions": ["moved"]},
+})
+card = asyncio.run(g.identify_song(clip_path=_clip, movie_title="Almost Famous"))
+check("listened BEFORE grounding", calls == ["identify_song_listen", "identify_song"], str(calls))
+check("found and enriched from search", card["found"] and card["album"] == "Madman Across the Water", str(card))
+
+# 2) The ear is sure but the GROUNDED pass errors → return the ear's track, not a 502.
+g, calls = _song_brain({
+    "identify_song_listen": {"music_present": True, "title": "Tuvan Throat Song", "artist": "",
+                             "confidence": "high", "cue": "overtone singing"},
+    "identify_song": gemini_brain.GeminiError("503 overloaded"),
+})
+card = asyncio.run(g.identify_song(clip_path=_clip, movie_title="X"))
+check("a search failure falls back to the confident ear", card["found"] and card["title"] == "Tuvan Throat Song", str(card))
+check("...crediting the clip audio as the source", card["source"] == "the clip audio", str(card))
+
+# 3) The ear hears music it can't name; the search names it from the richer cue.
+g, calls = _song_brain({
+    "identify_song_listen": {"music_present": True, "title": "", "artist": "",
+                             "confidence": "none", "cue": "mournful solo cello, slow"},
+    "identify_song": {"found": True, "title": "Prospero's Books", "artist": "Michael Nyman",
+                      "album": "", "year": "", "note": "score cue", "source": "IMDb", "emotions": []},
+})
+card = asyncio.run(g.identify_song(clip_path=_clip))
+check("heard-but-unnamed still gets named by search", card["found"] and card["title"] == "Prospero's Books", str(card))
+
+# 4) The ear hears NO music and nothing was pre-described → not found, and the grounded
+#    search is never spent.
+g, calls = _song_brain({
+    "identify_song_listen": {"music_present": False, "title": "", "artist": "", "confidence": "none", "cue": ""},
+    "identify_song": {"found": True, "title": "SHOULD NOT BE REACHED", "artist": "", "album": "",
+                      "year": "", "note": "", "source": "", "emotions": []},
+})
+card = asyncio.run(g.identify_song(clip_path=_clip))
+check("silence short-circuits to not-found", not card["found"], str(card))
+check("...and never spends the grounded search", calls == ["identify_song_listen"], str(calls))
+
+# 5) Backward compatible: no clip → the old text-only grounded path, one call.
+g, calls = _song_brain({
+    "identify_song": {"found": True, "title": "Stuck in the Middle with You", "artist": "Stealers Wheel",
+                      "album": "", "year": "1972", "note": "the ear scene", "source": "Tunefind", "emotions": []},
+})
+card = asyncio.run(g.identify_song(movie_title="Reservoir Dogs", cue="70s soft rock on the radio"))
+check("no clip -> text-only grounded still works", card["found"] and calls == ["identify_song"], str(calls))
+
+_clip.unlink(missing_ok=True)
 
 print("\n=== QUOTE: reacting to a line ships the exact words to the room ===")
 import app

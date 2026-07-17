@@ -10,6 +10,7 @@ import shutil
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import quote
@@ -74,6 +75,24 @@ logging.basicConfig(
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)      # one line per HTTP call, useless
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+# PERSIST THE LOGS. `docker logs` lives inside the container and dies with it — a
+# rebuild (or a plain `up --build`) wipes every line, so a failure Tim hits on a
+# movie night is unrecoverable by the next morning. This mirrors the whole stream
+# to a rotating file on the mounted data/ volume, which outlives the container. Full
+# timestamps here (the console uses %H:%M:%S) so a line still tells you its DAY.
+try:
+    _log_dir = Path(os.getenv("LOG_DIR", "data/logs"))
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _file_handler = RotatingFileHandler(
+        _log_dir / "movie-mode.log", maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8",
+    )
+    _file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    )
+    logging.getLogger().addHandler(_file_handler)
+except OSError:
+    logging.getLogger(__name__).warning("could not open log file — console only", exc_info=True)
 
 log = logging.getLogger(__name__)
 
@@ -5399,17 +5418,26 @@ async def api_reaction_song(request: Request, _auth: dict = Depends(require_auth
     if draft.get("song"):
         return JSONResponse(draft["song"])
 
-    music = draft.get("music") or {}
-    if not music.get("playing"):
-        raise HTTPException(status_code=400, detail="No music is playing in this clip")
     if not draft.get("moments"):
         raise HTTPException(status_code=400, detail="Nothing to anchor a song reaction to")
+
+    # The clip is the real evidence — identify_song LISTENS to it first, so we no
+    # longer gate on the draft's `music.playing` flag (a visuals-first read that
+    # routinely files a score cue under dialogue as "sound design" and misses it).
+    # We try whenever there's a clip to hear, or at least a cue already described.
+    music = draft.get("music") or {}
+    clip_ref = draft.get("clip_path")
+    clip_path = Path(clip_ref) if clip_ref else None
+    have_clip = bool(clip_path) and clip_path.exists()
+    if not have_clip and not (music.get("playing") and music.get("cue")):
+        raise HTTPException(status_code=400, detail="No music to identify in this clip")
 
     plex = plex_monitor.current_state() or {}
     playhead = draft.get("playhead_sec") or 0
     ts_label = f"{int(playhead // 60)}:{int(playhead % 60):02d}"
     try:
         card = await gemini_brain.identify_song(
+            clip_path=clip_path if have_clip else None,
             movie_title=draft.get("movie_title", ""),
             movie_context=(plex.get("summary") or "")[:800],
             cue=music.get("cue", ""),

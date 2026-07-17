@@ -2212,38 +2212,227 @@ Return ONLY the JSON object, nothing else.
             if uploaded is not None:
                 await self._delete_file(uploaded)
 
-    # ─── Song tab: name the track that reaction_draft heard ─────
+    # ─── Song tab: name the track that's actually playing ───────
+    _SONG_EMPTY = {
+        "found": False, "title": "", "artist": "", "album": "",
+        "year": "", "note": "", "source": "", "emotions": [],
+    }
+
     async def identify_song(
         self,
         *,
+        clip_path: Optional[Path] = None,
         movie_title: str = "",
         movie_context: str = "",
         cue: str = "",
         timestamp_label: str = "",
     ) -> dict[str, Any]:
-        """Grounded, TEXT-only track lookup for the Song tab.
+        """Name the track for the Song tab — by LISTENING first, then verifying.
 
-        `reaction_draft` already HEARD the clip and wrote `cue` (a plain description
-        of the music). This turns that description + the film into a named track via
-        Google Search — the two-stage split exists because grounded calls in this
-        codebase cannot also carry a response_schema (see generate_scene_topics),
-        and because pairing audio with grounding is untried here. So we ground on
-        words, not on the clip.
+        Two passes, because one call can't do both jobs here:
+
+        1. LISTEN (`_listen_for_song`) — multimodal, no grounding. Puts an ear on the
+           clip's audio with the single job of hearing the music, so a score cue buried
+           under dialogue (which the visuals-first `reaction_draft` pass files as "sound
+           design" and misses) still gets caught and, often, named outright.
+        2. VERIFY (`_ground_song`) — Google Search, no schema. Confirms the ear's guess
+           or names the track from the richer cue the ear wrote, and fills album/year/source.
+
+        The split is forced: grounded calls in this codebase cannot also carry a
+        response_schema (see generate_scene_topics), so identification-from-audio lives
+        on pass 1 and web-verification on pass 2. Degrades gracefully — a search that
+        errors or comes up empty falls back to a confident ear rather than failing the
+        tab. Only raises when BOTH passes had nothing and a call genuinely errored.
+
+        Backward compatible: with no `clip_path`, it's the old text-only grounded lookup.
 
         Returns {found, title, artist, album, year, note, source, emotions[]}.
         """
         self._ensure_client()
         start = perf_counter()
 
+        # ── Pass 1: listen ──
+        heard: dict[str, Any] = {}
+        if clip_path is not None:
+            try:
+                heard = await self._listen_for_song(
+                    Path(clip_path), movie_title=movie_title, timestamp_label=timestamp_label,
+                )
+            except GeminiError:
+                log.warning("identify_song: listen pass failed; falling back to the text cue",
+                            exc_info=True)
+
+        # Ears say pure speech/silence and nobody pre-described any music → nothing to chase.
+        if heard.get("music_present") is False and not cue.strip():
+            out = dict(self._SONG_EMPTY)
+            out["latency_ms"] = int((perf_counter() - start) * 1000)
+            return out
+
+        best_cue = (heard.get("cue") or "").strip() or cue.strip()
+        cand_title = (heard.get("title") or "").strip()
+        cand_artist = (heard.get("artist") or "").strip()
+        ears_sure = heard.get("confidence") in ("high", "medium") and bool(cand_title)
+
+        # ── Pass 2: verify / name via search ──
+        card: Optional[dict[str, Any]] = None
+        ground_failed = False
+        if best_cue or cand_title:
+            try:
+                card = await self._ground_song(
+                    movie_title=movie_title, movie_context=movie_context, cue=best_cue,
+                    timestamp_label=timestamp_label,
+                    candidate_title=cand_title, candidate_artist=cand_artist,
+                )
+            except GeminiError:
+                log.warning("identify_song: grounded pass failed", exc_info=True)
+                ground_failed = True
+
+        if card and card.get("found"):
+            card["latency_ms"] = int((perf_counter() - start) * 1000)
+            return card
+
+        # Search couldn't confirm (or errored). If the ear was confident, trust the ear.
+        if ears_sure:
+            out = dict(self._SONG_EMPTY)
+            out.update({
+                "found": True, "title": cand_title, "artist": cand_artist,
+                "note": "Recognised from the clip's audio.", "source": "the clip audio",
+            })
+            out["latency_ms"] = int((perf_counter() - start) * 1000)
+            return out
+
+        # Nothing heard, nothing found, and a call actually errored → let the caller retry.
+        if ground_failed and not heard:
+            raise GeminiError("couldn't reach the music lookup — try again in a moment")
+
+        out = dict(self._SONG_EMPTY)
+        out["latency_ms"] = int((perf_counter() - start) * 1000)
+        return out
+
+    async def _listen_for_song(
+        self, clip_path: Path, *, movie_title: str = "", timestamp_label: str = "",
+    ) -> dict[str, Any]:
+        """Pass 1: hear the clip. Multimodal, NO grounding (so it can carry a schema).
+
+        One job — the music — so a cue the visuals-first draft pass shrugged off as
+        ambience gets a dedicated ear. Returns what it heard and, when it can, a named
+        track with an honest confidence. Video is sent at LOW resolution: we're here
+        for the audio, and the picture is only a hint about which scene this is.
+        """
+        self._ensure_client()
+        clip_bytes = await asyncio.to_thread(clip_path.read_bytes)
+        use_inline = len(clip_bytes) <= self.INLINE_LIMIT_BYTES
+
+        uploaded: Any = None
+        try:
+            if use_inline:
+                media_part = types.Part.from_bytes(data=clip_bytes, mime_type="video/mp4")
+            else:
+                uploaded = await self._upload_clip(clip_path)
+                media_part = uploaded
+
+            schema = {
+                "type": "object",
+                "properties": {
+                    "music_present": {
+                        "type": "boolean",
+                        "description": "True if ANY music — a score cue or a song — is audible, "
+                                       "even low under dialogue. False ONLY for pure speech, "
+                                       "ambience, sound design, or silence.",
+                    },
+                    "title": {"type": "string", "description": "The track title if you genuinely recognise it, else empty."},
+                    "artist": {"type": "string", "description": "Performer, or the composer for score. Empty if you don't know."},
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low", "none"],
+                        "description": "How sure you are of title/artist. 'none' when you can hear it but can't name it.",
+                    },
+                    "cue": {
+                        "type": "string",
+                        "description": "What you HEAR: instrumentation, vocal or instrumental, tempo, "
+                                       "mood, and any lyrics you can make out — precise enough for a "
+                                       "search to name it. Always fill this whenever music_present is true.",
+                    },
+                },
+                "required": ["music_present", "title", "artist", "confidence", "cue"],
+            }
+            where = f" (around {timestamp_label})" if timestamp_label else ""
+            prompt = (
+                f"Listen to the AUDIO of this clip from {movie_title or 'a film'}{where}. "
+                "The picture is only a hint about which scene this is — your job is the MUSIC. "
+                "Is a score cue or a song playing, even quietly under the dialogue? "
+                "If you recognise the track, name it and rate your confidence honestly. "
+                "If you can hear it but can't name it, set confidence 'none' and describe the "
+                "sound precisely enough for someone to look it up. Never invent a title you "
+                "aren't reasonably sure of."
+            )
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=schema,
+                temperature=0.2,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
+            )
+            response = await self._call_with_retry(
+                [media_part, prompt], config, "identify_song_listen", model=self.draft_model,
+            )
+            await self._track_call(
+                response, call_type="identify_song_listen", model=self.draft_model, grounded=False,
+            )
+
+            raw = (response.text or "").strip()
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                log.warning("identify_song_listen: non-JSON reply — treating as unheard")
+                return {}
+            conf = (parsed.get("confidence") or "none").lower()
+            if conf not in ("high", "medium", "low", "none"):
+                conf = "none"
+            return {
+                "music_present": bool(parsed.get("music_present")),
+                "title": str(parsed.get("title") or "").strip()[:120],
+                "artist": str(parsed.get("artist") or "").strip()[:120],
+                "confidence": conf,
+                "cue": str(parsed.get("cue") or "").strip()[:400],
+            }
+        finally:
+            if uploaded is not None:
+                await self._delete_file(uploaded)
+
+    async def _ground_song(
+        self,
+        *,
+        movie_title: str = "",
+        movie_context: str = "",
+        cue: str = "",
+        timestamp_label: str = "",
+        candidate_title: str = "",
+        candidate_artist: str = "",
+    ) -> dict[str, Any]:
+        """Pass 2: name/verify the track via Google Search. No schema — grounded.
+
+        Seeded with the ear's candidate when there is one, so the search's job becomes
+        confirm-or-correct rather than guess-from-scratch. Returns a parsed card;
+        found=false when it can't name a track with reasonable confidence.
+        """
+        self._ensure_client()
+
         title_str = movie_title or "the film"
         if timestamp_label:
             title_str += f" (around {timestamp_label})"
         ctx = f"\nWhat the film is:\n{movie_context.strip()[:800]}" if movie_context.strip() else ""
+        lead = ""
+        if candidate_title:
+            who = f" by {candidate_artist}" if candidate_artist else ""
+            lead = (f'\nSomeone listening to the clip believes the track may be "{candidate_title}"{who}. '
+                    "Verify that with Google Search — confirm it, or correct it if it's wrong. "
+                    "Do not accept it blindly.")
 
         prompt = f"""A viewer is watching {title_str} and wants to know what song or score cue is playing right now.{ctx}
 
 Here is what can be heard, described by someone listening to the scene:
-"{cue.strip()[:400]}"
+"{cue.strip()[:400]}"{lead}
 
 Use Google Search to identify the actual track. Prefer a real, verifiable soundtrack/needle-drop for THIS film and this moment over a guess. If the description is too vague to name a specific track with reasonable confidence, set found=false — do NOT fabricate a title.
 
@@ -2271,15 +2460,12 @@ Return ONLY the JSON object, nothing else.
         response = await self._call_with_retry(
             [prompt], config, "identify_song", model="gemini-2.5-flash",
         )
-        usage = await self._track_call(
+        await self._track_call(
             response, call_type="identify_song", model="gemini-2.5-flash", grounded=True,
         )
 
         raw = (response.text or "").strip()
-        card: dict[str, Any] = {
-            "found": False, "title": "", "artist": "", "album": "",
-            "year": "", "note": "", "source": "", "emotions": [],
-        }
+        card: dict[str, Any] = dict(self._SONG_EMPTY)
         try:
             cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip()
             parsed = json.loads(cleaned)
@@ -2296,10 +2482,7 @@ Return ONLY the JSON object, nothing else.
                     "emotions": keys,
                 }
         except (json.JSONDecodeError, TypeError, ValueError):
-            log.warning("identify_song: failed to parse JSON — returning found=false")
-
-        card["latency_ms"] = int((perf_counter() - start) * 1000)
-        card["usage"] = usage
+            log.warning("identify_song: failed to parse grounded JSON — returning found=false")
         return card
 
     # ─── Reaction drawer: the finished sentences ────────────────
