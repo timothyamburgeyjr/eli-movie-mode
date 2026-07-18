@@ -133,6 +133,7 @@ def build_payload(
     history_narrative: str = "",
     stoned_narration: str = "",
     reaction_narration: str = "",
+    verbatim_narration: str = "",
     presence_narration: str = "",
     quiet_film: str = "",
     quiet_room: str = "",
@@ -155,6 +156,9 @@ def build_payload(
                           because it's the one that most often needs answering.
          Both BEFORE the scene: they are the run-up to this moment, not a footnote.
       5. Scene / history / reaction emotes (one block per paragraph).
+      5b. VERBATIM — words that must reach them exactly (a line from the film, a
+          piece of trivia). Last of the narration, closest to Tim's own words, and
+          never condensed: when the packet is over the cap the SCENE goes, not this.
       6. Typed dialogue, plain.
     """
     lines: list[str] = [_FORMAT_DIRECTIVE_EMOTE]
@@ -165,7 +169,7 @@ def build_payload(
     lines.extend(_wrap_paragraphs_as_emotes(presence_narration or ""))
     lines.extend(_wrap_paragraphs_as_emotes(quiet_film or ""))
     lines.extend(_wrap_paragraphs_as_emotes(quiet_room or ""))
-    for block in (scene_narration, history_narrative, reaction_narration):
+    for block in (scene_narration, history_narrative, reaction_narration, verbatim_narration):
         lines.extend(_wrap_paragraphs_as_emotes(block or ""))
     body = "\n".join(lines)
     dialogue = (typed_dialogue or "").strip()

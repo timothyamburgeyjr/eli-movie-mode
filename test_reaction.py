@@ -275,5 +275,46 @@ check("note carries speaker + verbatim line", "Bill" in _inj["note"] and "sadist
 _qline = app._reaction_line_with_quote(_idraft, {"key": _inj["key"]}, "I lost it")
 check("the searched quote ships to the room verbatim", "Do you find me sadistic?" in _qline, _qline)
 
+print("\n=== VERBATIM: the exact words reach the room, protected from condensing ===")
+import inspect
+
+import coordinator
+import kindroid_relay
+
+# The line he reacted to, handed over in the protected slot.
+_vq = {"quotes": [{"text": "I never pretended I did.", "speaker": "Jonas", "target_key": "m1quote0"}]}
+_v = app._reaction_verbatim(_vq, {"key": "m1quote0"})
+check("quote verbatim names speaker + exact line",
+      _v == 'Jonas says: "I never pretended I did."', _v)
+check("an ordinary target has no verbatim", app._reaction_verbatim(_vq, {"key": "m1t0"}) == "")
+# A song reaction hands over the track and the lyric.
+_vs = {"song": {"card": {"title": "Tiny Dancer", "artist": "Elton John",
+                         "lyric": "Hold me closer, tiny dancer"}}}
+_vsong = app._reaction_verbatim(_vs, {"key": "song"})
+check("song verbatim carries track + lyric",
+      "Tiny Dancer" in _vsong and "Hold me closer" in _vsong, _vsong)
+
+# The mechanical payload emits it — and KEEPS it when the scene is dropped for length.
+_body = kindroid_relay.build_payload(
+    scene_narration="a scene", verbatim_narration='Jonas says: "I never pretended I did."')
+check("build_payload emits the verbatim block", "I never pretended I did." in _body, _body)
+_body2 = kindroid_relay.build_payload(
+    scene_narration="", history_narrative="h", verbatim_narration='X says: "keep me"')
+check("verbatim survives a dropped scene", "keep me" in _body2, _body2)
+
+# And the coordinator is told, in the prompt, that it may not paraphrase it away.
+check("the packet template has a protected verbatim section",
+      "MUST SURVIVE" in coordinator._PACKAGE_USER)
+check("...and a rule forbidding paraphrase",
+      "VERBATIM MEANS VERBATIM" in coordinator._PACKAGE_SYSTEM)
+
+print("\n=== TRIVIA: the fact actually reaches the kins now ===")
+check("a light-touch trivia relay exists", callable(getattr(app, "_relay_trivia_to_room", None)))
+_tsrc = inspect.getsource(app.api_movie_trivia)
+check("the trivia endpoint relays it to the room", "_relay_trivia_to_room" in _tsrc)
+_rsrc = inspect.getsource(app._relay_trivia_to_room)
+check("...as the protected verbatim, not a paraphrase", "verbatim=trivia_text" in _rsrc)
+check("...react-only, so nobody holds forth", "react_only=True" in _rsrc)
+
 print("\n" + ("ALL PASS" if ok else "FAILURES ABOVE"))
 sys.exit(0 if ok else 1)

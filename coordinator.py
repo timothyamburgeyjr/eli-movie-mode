@@ -1762,6 +1762,15 @@ if it names them.
 condense the NARRATION — tighten the scene, trim the older beats. Never cut or \
 compress Tim's dialogue, and never drop what another family member just said.
 
+5b. VERBATIM MEANS VERBATIM. Anything under "EXACT WORDS THAT MUST SURVIVE" is \
+there because the ACTUAL WORDING is the point — a line of dialogue from the film, \
+a piece of trivia Tim just looked up. Reproduce it word for word, in quotes, inside \
+an emote. Never paraphrase it, never summarise it, never fold it into a general \
+description of the scene, and never drop it to save room — cut the scene or the \
+older beats instead. "He says something about faith" is a FAILURE when the line was \
+"I never pretended I did." Getting the exact words in front of them is the whole \
+reason this section exists: it's what they're being asked to react to.
+
 Write the narration in the present tense, warm and sensory, as if Tim is right \
 there beside them. You are not writing dialogue for anyone — you are setting a \
 scene and reporting a room."""
@@ -1802,6 +1811,9 @@ Assemble the body from these parts. Some may be empty; skip those.
 
 --- WHAT THE OTHERS IN THE ROOM JUST DID AND SAID (narration — third person, quote their words) ---
 {prior}
+
+--- EXACT WORDS THAT MUST SURVIVE (reproduce VERBATIM inside an emote — never paraphrase, summarise, or drop) ---
+{verbatim}
 
 {react_only}
 --- TIM'S OWN WORDS ({words_note}) ---
@@ -1925,6 +1937,7 @@ async def package_turn(
     quiet_room: str = "",
     dialogue: str = "",
     reaction: str = "",
+    verbatim: str = "",
     prior: Optional[list[dict[str, str]]] = None,
     react_only: bool = False,
     addressed_names: Optional[list[str]] = None,
@@ -1990,6 +2003,7 @@ async def package_turn(
             scene=scene or "(no scene analysis available)",
             history=history or "(nothing worth recalling yet)",
             reaction=reaction or "(nothing — he typed instead)",
+            verbatim=verbatim or "(nothing to quote exactly this turn)",
             prior=_render_prior(prior or []) or "(nobody has spoken yet this turn)",
             react_only=_REACT_ONLY_NOTE.format(name=kin.first_name) if react_only else "",
             dialogue=dialogue or "(Tim didn't type anything this turn)",

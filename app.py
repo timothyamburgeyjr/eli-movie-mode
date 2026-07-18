@@ -1357,6 +1357,7 @@ async def _relay_to_kin(
     reaction: str,
     prior: list[dict[str, str]],
     mood: Optional[str],
+    verbatim: str = "",
     react_only: bool = False,
     addressed_names: Optional[list[str]] = None,
     barged_in: str = "",
@@ -1503,6 +1504,7 @@ async def _relay_to_kin(
             quiet_room=quiet_room,
             dialogue=dialogue,
             reaction=reaction,
+            verbatim=verbatim,
             prior=prior,
             react_only=react_only,
             addressed_names=addressed_names,
@@ -1534,11 +1536,14 @@ async def _relay_to_kin(
             quiet_film=quiet_film,
             quiet_room=quiet_room,
             reaction_narration=fb_reaction,
+            verbatim_narration=verbatim,
             typed_dialogue=fb_dialogue,
         )
         if len(body) > settings.kindroid_char_limit:
             # Drop the SCENE, never the catch-up: the scene is one moment, the
             # catch-up is everything they'd otherwise have no memory of at all.
+            # The VERBATIM block is likewise never dropped — the exact words are
+            # the entire reason the packet was sent.
             log.warning("fallback payload for %s is over the cap — dropping scene", kin.key)
             body = build_payload(
                 scene_narration="",
@@ -1548,6 +1553,7 @@ async def _relay_to_kin(
                 quiet_film=quiet_film,
                 quiet_room=quiet_room,
                 reaction_narration=fb_reaction,
+                verbatim_narration=verbatim,
                 typed_dialogue=fb_dialogue,
             )
 
@@ -1555,6 +1561,14 @@ async def _relay_to_kin(
         {"type": "eli_typing", "on": True, "character_key": kin.key, "name": kin.first_name}
     )
     await _stage(f"{kin.first_name} is answering…")
+    # WHAT WE ACTUALLY SENT. Only the kin's REPLY was ever logged, which made the
+    # most important artifact in the system — the packet we built for them — the one
+    # thing nobody could inspect. "It didn't send the verbatim quote" was unanswerable
+    # without this. Logged whole (the cap is 4k) to the persistent file.
+    log.info(
+        "payload -> %s | %d chars | verbatim=%s | body=%r",
+        kin.key, len(body), "yes" if verbatim else "no", body,
+    )
     try:
         reply = await send_message(body, ai_id=kin.ai_id)
     except KindroidError as e:
@@ -1679,6 +1693,7 @@ async def _run_relay(
     history: str,
     dialogue: str = "",
     reaction: str = "",
+    verbatim: str = "",
     mood: Optional[str] = None,
     tim_situation: str = "",
     scene_situation: str = "",
@@ -2257,7 +2272,8 @@ async def _run_relay(
             result = await _relay_to_kin(
                 session_id, kin,
                 scene=scene, history=history, presence=presence,
-                dialogue=dialogue, reaction=reaction, prior=list(prior), mood=mood,
+                dialogue=dialogue, reaction=reaction, verbatim=verbatim,
+                prior=list(prior), mood=mood,
                 addressed_names=addressed_names,
                 barged_in=barge_reasons.get(kin.key, ""),
             )
@@ -2277,7 +2293,8 @@ async def _run_relay(
                 return await _relay_to_kin(
                     session_id, kin,
                     scene=scene, history=history, presence=presence,
-                    dialogue=dialogue, reaction=reaction, prior=list(prior), mood=mood,
+                    dialogue=dialogue, reaction=reaction, verbatim=verbatim,
+                    prior=list(prior), mood=mood,
                     react_only=True, addressed_names=addressed_names,
                 )
             finally:
@@ -2291,6 +2308,55 @@ async def _run_relay(
     finally:
         # Whatever happened — crash, standby, a dead kin — the composer must
         # come back. A locked input box with no way out is the worst outcome here.
+        await manager.broadcast({"type": "relay", "pending": [], "order": []})
+        await _stage("")
+
+
+async def _relay_trivia_to_room(session_id: str, label: str, trivia_text: str) -> None:
+    """Hand the room a piece of trivia Tim just looked up. LIGHT TOUCH.
+
+    Until now this never happened at all: the trivia card was rendered on Tim's
+    dashboard and the kins were told nothing, so a fact he'd just discovered was
+    something he was holding alone. Now everyone gets the EXACT text (as the
+    protected verbatim block — the wording IS the point) and reacts briefly.
+
+    React-only for the whole room, so nobody holds forth about a bit of trivia, and
+    no mic order is decided: there's no floor to hand out, which also saves the
+    coordinator call. Fires concurrently — a trivia tap shouldn't cost a full turn
+    of wall-clock.
+    """
+    if _pipeline_paused():
+        return
+    room, _addressed = await _room_and_addressed()
+    if not room:
+        return
+
+    presence = await _presence_standing_line()
+    what = f" ({label})" if label else ""
+    reaction = f"I look up a bit of trivia about the film{what} and read it out to everyone."
+
+    keys = [k.key for k in room]
+    outstanding = list(keys)
+    await manager.broadcast({"type": "relay", "pending": outstanding, "order": keys})
+
+    async def _notice(kin) -> None:
+        nonlocal outstanding
+        try:
+            await _relay_to_kin(
+                session_id, kin,
+                scene="", history="", presence=presence,
+                dialogue="", reaction=reaction, verbatim=trivia_text,
+                prior=[], mood=None, react_only=True, addressed_names=[],
+            )
+        except Exception:
+            log.exception("trivia relay to %s failed", kin.key)
+        finally:
+            outstanding = [k for k in outstanding if k != kin.key]
+            await manager.broadcast({"type": "relay", "pending": outstanding, "order": keys})
+
+    try:
+        await asyncio.gather(*(_notice(k) for k in room), return_exceptions=True)
+    finally:
         await manager.broadcast({"type": "relay", "pending": [], "order": []})
         await _stage("")
 
@@ -5037,6 +5103,10 @@ async def api_movie_trivia(request: Request, _auth: dict = Depends(require_auth)
             {"type": "message", "message": _message_to_payload(row_to_dict(row) or {})}
         )
     await _broadcast_cost(session_id)
+    # SHARE IT WITH THE ROOM. A fact Tim just discovered used to stop at his own
+    # screen — the kins never heard a word of it. Light touch: they get the exact
+    # text and react briefly. Fired as a task so the card renders instantly.
+    asyncio.create_task(_relay_trivia_to_room(session_id, display_label, trivia_text))
     # Trivia interaction — give the mood ticker a chance to refresh now,
     # bypassing its cadence dedup so Tim sees up-to-date theming.
     asyncio.create_task(_maybe_tick_mood(force=True))
@@ -5371,6 +5441,37 @@ def _reaction_line_with_song(draft: dict, target: dict, first_person: str) -> st
     if lyric:
         bits.append(f'a line from it: "{lyric}"')
     return f'{first_person} — reacting to {"; ".join(bits)}'
+
+
+def _reaction_verbatim(draft: dict, target: dict) -> str:
+    """The words that must reach the room EXACTLY, or "" for an ordinary target.
+
+    The reaction narration already mentions the line or the track, but narration is
+    something the coordinator is allowed to tighten to fit the cap. This is the same
+    content handed over again in the PROTECTED slot, where it can't be paraphrased
+    away — because for a quote or a lyric, the exact wording IS the thing being
+    reacted to. "He says something about faith" is not the line.
+    """
+    quote = next(
+        (q for q in draft.get("quotes", []) if q.get("target_key") == target.get("key")),
+        None,
+    )
+    line = (quote or {}).get("text", "").strip()
+    if line:
+        who = (quote.get("speaker") or "").strip()
+        return f'{who} says: "{line}"' if who else f'The line: "{line}"'
+
+    if target.get("key") == "song":
+        card = (draft.get("song") or {}).get("card") or {}
+        title = (card.get("title") or "").strip()
+        if title:
+            artist = (card.get("artist") or "").strip()
+            bits = [f'The track: "{title}"' + (f" by {artist}" if artist else "")]
+            lyric = (card.get("lyric") or "").strip()
+            if lyric:
+                bits.append(f'a line from it: "{lyric}"')
+            return " · ".join(bits)
+    return ""
 
 
 def _emotion_catalogue() -> dict[str, Any]:
@@ -5759,6 +5860,8 @@ async def api_send_reaction(request: Request, _auth: dict = Depends(require_auth
     # are mutually exclusive targets, so chaining is safe: each is a no-op off-target.
     reaction_line = _reaction_line_with_quote(draft, target, first_person)
     reaction_line = _reaction_line_with_song(draft, target, reaction_line)
+    # ...and the same words again in the slot the coordinator may not condense.
+    reaction_verbatim = _reaction_verbatim(draft, target)
 
     content = f"{emotion.emoji} {first_person}"
     msg_id = await db.add_message(active["id"], "reaction", content)
@@ -5792,7 +5895,9 @@ async def api_send_reaction(request: Request, _auth: dict = Depends(require_auth
     _discard_draft(draft_id, keep_frame=moment.get("frame_path"))
 
     asyncio.create_task(
-        _process_chosen_reaction(active["id"], scene, mood, reaction_line, aim_at)
+        _process_chosen_reaction(
+            active["id"], scene, mood, reaction_line, aim_at, reaction_verbatim
+        )
     )
     return JSONResponse({"id": msg_id})
 
@@ -5830,6 +5935,7 @@ async def _process_chosen_reaction(
     mood: Optional[str],
     reaction_line: str,
     aim_at: Optional[str],
+    verbatim: str = "",
 ) -> None:
     """Relay the sentence Tim CHOSE. Not one Gemini invented for him.
 
@@ -5845,7 +5951,10 @@ async def _process_chosen_reaction(
         if aim_at:
             previous = (await db.get_all_settings()).get("addressed_kins") or "[]"
             await db.set_setting("addressed_kins", json.dumps([aim_at]))
-        await _run_relay(session_id, scene=scene, history="", reaction=reaction_line, mood=mood)
+        await _run_relay(
+            session_id, scene=scene, history="",
+            reaction=reaction_line, verbatim=verbatim, mood=mood,
+        )
     except Exception:
         log.exception("reaction relay crashed")
         await _system_message(session_id, "Reaction pipeline error — see server logs.")
