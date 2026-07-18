@@ -443,5 +443,35 @@ check("an ordinary target ships its label", "mud-caked Bronco" in _tv, _tv)
 check("a target with no label still yields nothing",
       app._reaction_verbatim({}, {"key": "m0t3", "facet": "story", "label": ""}) == "")
 
+print("\n=== QUOTE FALLBACK: not in the clip? look in the FILM ===")
+_g2, _c2 = _song_brain({"find_quote_in_film": {"quotes": [
+    {"text": "You can love any man you choose.", "speaker": "Grandma"},
+    {"text": "", "speaker": "x"},
+]}})
+_film = asyncio.run(_g2.find_quote_in_film(query="love any man you choose",
+                                           movie_title="Grandma's Boy"))
+check("finds the real line from the film",
+      _film[0]["text"] == "You can love any man you choose.", str(_film))
+check("keeps the speaker", _film[0]["speaker"] == "Grandma", str(_film))
+check("flags it as NOT from this clip", _film[0]["from_film"] is True, str(_film))
+check("no offset, because it isn't in the clip", _film[0]["offset_ms"] is None, str(_film))
+check("blank lines dropped", all(q["text"] for q in _film), str(_film))
+_g3, _ = _song_brain({"find_quote_in_film": {"quotes": []}})
+check("a line that truly isn't in the film returns nothing (never invents)",
+      asyncio.run(_g3.find_quote_in_film(query="zzz", movie_title="X")) == [])
+
+print("\n=== a film-wide quote is honest about WHEN it was said ===")
+_fd = {"moments": [{"key": "m0", "offset_ms": 5000, "targets": [{"key": "m0t0"}]}], "quotes": []}
+_n = app._inject_quotes(_fd, [{"text": "You can love any man you choose.",
+                               "speaker": "Grandma", "offset_ms": None, "from_film": True}])
+check("it still gets injected as a reactable target", _n == 1, str(_n))
+_ft = next(t for t in _fd["moments"][0]["targets"] if t["key"] != "m0t0")
+check("the note says it's from earlier, not 'spoken by'",
+      "From earlier in the film" in _ft["note"], _ft["note"])
+_fline = app._reaction_line_with_quote(_fd, {"key": _ft["key"]}, "that line kills me")
+check("the room hears it as a remembered line, not one just delivered",
+      "from earlier in the film" in _fline and "just delivered" not in _fline, _fline)
+check("...and still carries the exact words", "love any man you choose" in _fline, _fline)
+
 print("\n" + ("ALL PASS" if ok else "FAILURES ABOVE"))
 sys.exit(0 if ok else 1)

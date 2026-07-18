@@ -5416,6 +5416,9 @@ def _reaction_draft_payload(draft_id: str, draft: dict) -> dict[str, Any]:
                 "moment_key": q["moment_key"],
                 "target_key": q["target_key"],
                 "moment_caption": _caption_for(draft, q["moment_key"]),
+                # True when it came from the film-wide fallback rather than the clip,
+                # so the drawer can say so instead of implying it just played.
+                "from_film": bool(q.get("from_film")),
             }
             for q in draft.get("quotes", [])
         ],
@@ -5452,18 +5455,29 @@ def _inject_quotes(draft: dict, found: list[dict]) -> int:
         text = (q.get("text") or "").strip()
         if not text or text.lower() in seen:
             continue
-        want = q.get("offset_ms") or 0
-        beat = min(moments, key=lambda m: abs(m["offset_ms"] - want))
+        # A film-wide match has no offset in THIS clip — it isn't in it. Hang it on
+        # the most recent beat purely so it has somewhere to live.
+        from_film = bool(q.get("from_film"))
+        want = q.get("offset_ms")
+        beat = moments[-1] if want is None else min(
+            moments, key=lambda m: abs(m["offset_ms"] - want)
+        )
         speaker = (q.get("speaker") or "").strip()
         who = speaker or "someone off screen"
         # len(targets) as the suffix keeps the key unique on this beat across repeat
         # searches (targets only ever grow), and "quote" in it flags it as foreign.
         tkey = f"{beat['key']}quotefind{len(beat['targets'])}"
+        # The note is what the sentence writer and the room get, so it has to be
+        # honest about WHEN the line was said. Writing "spoken by X" about a line
+        # from twenty minutes ago would have the kins reacting to it as if it had
+        # just happened on screen.
+        note = (f'From earlier in the film — {who} says: "{text}"' if from_film
+                else f'Spoken by {who}: "{text}"')
         beat["targets"].append({
             "key": tkey,
             "label": f'"{text}"'[:90],
             "facet": "writing",
-            "note": f'Spoken by {who}: "{text}"'[:180],
+            "note": note[:180],
             "emotions": [],
         })
         added.append({
@@ -5471,6 +5485,7 @@ def _inject_quotes(draft: dict, found: list[dict]) -> int:
             "speaker": speaker[:60],
             "moment_key": beat["key"],
             "target_key": tkey,
+            "from_film": from_film,
         })
         seen.add(text.lower())
     if added:
@@ -5494,7 +5509,13 @@ def _reaction_line_with_quote(draft: dict, target: dict, first_person: str) -> s
     if not line:
         return first_person
     who = (quote.get("speaker") or "").strip()
-    attribution = f"the line {who} just delivered" if who else "the line just delivered"
+    # "Just delivered" is a lie about a line he looked up from earlier in the film,
+    # and the room would react to it as if it had only now been said.
+    if quote.get("from_film"):
+        attribution = (f"a line from earlier in the film, {who}'s" if who
+                       else "a line from earlier in the film")
+    else:
+        attribution = f"the line {who} just delivered" if who else "the line just delivered"
     return f'{first_person} — reacting to {attribution}: "{line}"'
 
 
@@ -5795,12 +5816,30 @@ async def api_reaction_quote_search(request: Request, _auth: dict = Depends(requ
     except GeminiError as e:
         log.exception("find_quote failed")
         raise HTTPException(status_code=502, detail=f"Couldn't search the clip: {e}")
+
+    # NOT IN THE LAST 45 SECONDS? THEN LOOK IN THE FILM.
+    #
+    # The clip is only ever 45 seconds long, so searching it is useless for a line
+    # you remember from twenty minutes ago — which is exactly when you most want to
+    # quote something. ("love any man you choose", searched during a scene it isn't
+    # in, correctly returned nothing and looked broken.) Zero downside: this only
+    # fires when the clip already came up empty, so a line that IS on screen still
+    # wins, and the ground truth of what was just said is never overridden by a
+    # web search.
+    from_film = False
+    if not found and draft.get("movie_title"):
+        found = await gemini_brain.find_quote_in_film(
+            query=text, movie_title=draft["movie_title"],
+        )
+        from_film = bool(found)
     await _broadcast_cost(draft["session_id"])
 
     matched = _inject_quotes(draft, found)
     payload = _reaction_draft_payload(draft_id, draft)
     payload["quote_matched"] = matched
     payload["quote_query"] = text
+    # So the drawer can say "this one's from elsewhere in the film, not on screen now".
+    payload["quote_from_film"] = from_film
     return JSONResponse(payload)
 
 

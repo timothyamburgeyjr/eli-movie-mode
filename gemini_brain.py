@@ -2731,10 +2731,93 @@ Return ONLY the JSON object, nothing else.
                     "speaker": (q.get("speaker") or "").strip()[:60],
                     "offset_ms": off,
                 })
+            # Logged because a quote search that finds nothing is indistinguishable
+            # from a broken one, and there was previously no way to tell which.
+            log.info("find_quote %r in the clip -> %d match(es)", query.strip()[:60], len(out))
             return out
         finally:
             if uploaded is not None:
                 await self._delete_file(uploaded)
+
+    async def find_quote_in_film(
+        self,
+        *,
+        query: str,
+        movie_title: str,
+        year: Optional[int] = None,
+    ) -> list[dict[str, Any]]:
+        """The line isn't in the clip — so look it up in the FILM.
+
+        `find_quote` only ever hears the cached 45 seconds. That's the right first
+        answer (it's the ground truth of what was actually just said) but it makes
+        the search useless for a line you remember from twenty minutes ago, which is
+        exactly when you most want to quote something. This is the fallback: a
+        grounded search of the film's real dialogue.
+
+        Grounded, so no response_schema (they're mutually exclusive here) — JSON is
+        asked for in the prompt and parsed defensively. Returns [] rather than a
+        guess: a misremembered line invented back at you is worse than no answer.
+        """
+        self._ensure_client()
+        title = movie_title.strip() or "the film"
+        if year:
+            title = f"{title} ({year})"
+
+        prompt = f"""A viewer is watching {title} and is trying to recall a specific line of dialogue from it. In their words, the line is something like:
+
+  "{query.strip()[:300]}"
+
+Use Google Search to find the ACTUAL line from this film's dialogue. Quote it EXACTLY as written in the script — the real wording, not their paraphrase, and not a tidied-up version.
+
+Rules:
+- Only lines that genuinely appear in THIS film. If your search turns up nothing that matches, return an empty list.
+- Never invent a line, never "correct" one into something that sounds better, and never return their own words back to them as if they were the quote.
+- Up to 3 candidates, best match first, if several lines could be what they mean.
+
+Output STRICT JSON only, no markdown fences, exactly this shape:
+{{
+  "quotes": [
+    {{"text": "<the line, verbatim>", "speaker": "<character who says it, or empty>"}}
+  ]
+}}
+
+Return ONLY the JSON object, nothing else.
+"""
+        config = types.GenerateContentConfig(
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+            temperature=0.2,
+        )
+        try:
+            response = await self._call_with_retry(
+                [prompt], config, "find_quote_in_film", model="gemini-2.5-flash",
+            )
+        except GeminiError:
+            log.warning("find_quote_in_film: lookup failed", exc_info=True)
+            return []
+        await self._track_call(
+            response, call_type="find_quote_in_film", model="gemini-2.5-flash", grounded=True,
+        )
+
+        raw = (response.text or "").strip()
+        out: list[dict[str, Any]] = []
+        try:
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip()
+            parsed = json.loads(cleaned)
+            for q in (parsed.get("quotes") or [])[:3]:
+                text = str((q or {}).get("text") or "").strip()[:240]
+                if not text:
+                    continue
+                out.append({
+                    "text": text,
+                    "speaker": str((q or {}).get("speaker") or "").strip()[:60],
+                    # No offset: this line is from the film, not from this clip.
+                    "offset_ms": None,
+                    "from_film": True,
+                })
+        except (json.JSONDecodeError, TypeError, ValueError):
+            log.warning("find_quote_in_film: non-JSON reply — no matches")
+        log.info("find_quote %r in the FILM -> %d match(es)", query.strip()[:60], len(out))
+        return out
 
     # ─── Reaction drawer: the finished sentences ────────────────
     async def reaction_sentences(

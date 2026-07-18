@@ -8028,7 +8028,10 @@
             row.appendChild(el('div', { class: 'quote-line', text: '“' + q.text + '”' }));
             const who = [];
             if (q.speaker) who.push(q.speaker);
-            if (q.moment_caption) who.push(q.moment_caption);
+            // A line found in the FILM isn't on screen now — say so, rather than
+            // showing a beat caption that implies it just played.
+            if (q.from_film) who.push('from earlier in the film');
+            else if (q.moment_caption) who.push(q.moment_caption);
             if (who.length) row.appendChild(el('div', { class: 'quote-who', text: who.join(' · ') }));
             row.onclick = () => {
                 const m = RX.draft.moments.find(x => x.key === q.moment_key);
