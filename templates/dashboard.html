@@ -1512,6 +1512,27 @@
         /* STEP 2 — categories. An INDEX into the depth, not a filter. Without it
            only 4-5 targets fit on screen, and the craft/performance ones lose that
            fight to the plot beats every time — extracted, paid for, never seen. */
+        /* The quick chips. One scrollable row, never wrapping into a wall of
+           buttons — the whole point is that it stays glanceable. */
+        .quickrow {
+            display: flex; gap: 8px; margin-bottom: 12px;
+            overflow-x: auto; -webkit-overflow-scrolling: touch;
+            scrollbar-width: none; padding-bottom: 2px;
+        }
+        .quickrow::-webkit-scrollbar { display: none; }
+        .quick {
+            flex: 0 0 auto; display: flex; align-items: center; gap: 7px;
+            padding: 10px 14px; border-radius: 999px; cursor: pointer;
+            background: var(--bg-elevated); border: 1px solid var(--border);
+            color: var(--text-primary); font-size: 0.9rem; font-weight: 600;
+            transition: all 0.15s; white-space: nowrap;
+        }
+        .quick:hover { border-color: var(--accent); }
+        .quick:active { transform: scale(0.97); }
+        .q-emoji { font-size: 1rem; line-height: 1; }
+        /* Which beat it came from — present so the pick is unambiguous, quiet so it
+           never competes with the name itself. */
+        .q-where { margin-top: 4px; color: var(--text-muted); font-size: 0.76rem; font-weight: 400; }
         .cats { display: flex; flex-direction: column; gap: 9px; }
         .cat {
             padding: 15px 16px; border-radius: 12px; cursor: pointer;
@@ -7238,7 +7259,7 @@
     async function openDrawer() {
         if (!reactAvailable()) return;
         RX.open = true; RX.tab = 'reaction';
-        RX.moment = RX.facet = RX.target = RX.emotion = RX.options = null;
+        RX.moment = RX.facet = RX.target = RX.emotion = RX.options = RX.quick = null;
         RX.aim = null; RX.showAllEmo = false;
         RX.draft = null; RX.query = ''; RX.searched = false;
         RX.intensity = 2; RX.intensitySet = false; RX.shade = ''; RX.steer = '';
@@ -7269,7 +7290,7 @@
             b.classList.toggle('active', b.dataset.tab === tab));
         // Switching tabs abandons any half-built reaction — but keeps the loaded
         // draft (the same clip index serves all three tabs) and the song lookup.
-        RX.moment = RX.facet = RX.target = RX.emotion = RX.options = null;
+        RX.moment = RX.facet = RX.target = RX.emotion = RX.options = RX.quick = null;
         RX.intensitySet = false; RX.shade = ''; RX.steer = '';
         // ALL THREE tabs need the clip index — pull it once on open. Reaction shows the
         // beats MENU with a search box on top (type to jump to a beat, or tap one); Quote
@@ -7430,6 +7451,12 @@
                     $('drawerTitle').textContent = "Couldn't pin that one";
                     return renderReactNoMatch(b);
                 }
+                // A quick chip skips the beat entirely: "I want to react to Gene
+                // Hackman" doesn't care WHICH of the last four beats he was in.
+                if (RX.quick) {
+                    $('drawerTitle').textContent = FACET_NAMES[RX.quick] || 'Pick one';
+                    return renderQuickTargets(b);
+                }
                 if (!RX.moment) { $('drawerTitle').textContent = 'What are you reacting to?'; return renderBeats(b); }
                 if (!RX.facet)  { $('drawerTitle').textContent = 'What about it?';            return renderCats(b); }
                 $('drawerTitle').textContent = FACET_NAMES[RX.facet] || 'What about it?';     return renderTargets(b);
@@ -7554,6 +7581,9 @@
     }
 
     function renderBeats(b) {
+        // The quick chips sit above everything: a person or an object is a thing you
+        // want to react to directly, and picking a beat first is backwards for them.
+        renderQuickChips(b);
         // THE SEARCH BAR, on top of the MENU. Type to jump straight to the beat you mean,
         // or just tap one below. Both are always here — he asked for the menu AND the box,
         // not one hidden behind the other.
@@ -7614,6 +7644,81 @@
     // Quote/Song injected targets live on the beats too, but they belong to their
     // own tabs — hide them from the Reaction tab's category and target lists.
     function isForeignTarget(t) { return t.key.includes('quote') || t.key === 'song'; }
+
+    // ─── THE QUICK CHIPS ─────────────────────────────────────────────
+    //
+    // The five CONCRETE facets get a shortcut past the beat picker, because the
+    // beat is the wrong first question for them. "I want to react to Gene Hackman"
+    // does not care which of the last four moments he happened to be in — but the
+    // normal flow makes you guess one before it will show you his name. Story and
+    // craft stay behind the moment, where they genuinely belong.
+    //
+    // Only chips with something in them render, so the row doubles as "here's
+    // what's actually in this clip". Usually 2-4, not 5 — no dog, no Animals chip.
+    const QUICK_FACETS = ['people', 'things', 'wardrobe', 'animals', 'place'];
+    const QUICK_EMOJI = { people: '👤', things: '📦', wardrobe: '🧥', animals: '🐾', place: '📍' };
+
+    /** {facet: [{moment, target}]} across the WHOLE window, not one beat. */
+    function quickGroups() {
+        const out = {};
+        for (const m of ((RX.draft && RX.draft.moments) || [])) {
+            for (const t of (m.targets || [])) {
+                if (t.key.endsWith('tall') || isForeignTarget(t)) continue;
+                if (QUICK_FACETS.indexOf(t.facet) === -1) continue;
+                (out[t.facet] = out[t.facet] || []).push({ moment: m, target: t });
+            }
+        }
+        return out;
+    }
+
+    function renderQuickChips(b) {
+        const groups = quickGroups();
+        const have = QUICK_FACETS.filter(f => (groups[f] || []).length);
+        if (!have.length) return;              // nothing concrete in this clip — no row at all
+        const row = el('div', { class: 'quickrow' });
+        for (const f of have) {
+            const c = el('button', { class: 'quick', type: 'button' });
+            c.appendChild(el('span', { class: 'q-emoji', text: QUICK_EMOJI[f] || '•' }));
+            c.appendChild(el('span', { text: FACET_NAMES[f] || f }));
+            c.onclick = () => { RX.quick = f; renderDrawer(); };
+            row.appendChild(c);
+        }
+        b.appendChild(row);
+    }
+
+    function renderQuickTargets(b) {
+        const items = quickGroups()[RX.quick] || [];
+        b.appendChild(backBtn('back', () => { RX.quick = null; renderDrawer(); }));
+        b.appendChild(el('div', { class: 'step-label',
+            text: 'anywhere in the last ' + ((RX.draft && RX.draft.clip_seconds) || 45) + ' seconds' }));
+        const picks = el('div', { class: 'picks' });
+        // The same actor can appear in three beats. Show them ONCE — three identical
+        // buttons that differ only by a caption you can't read in the dark is worse
+        // than one, and the first is the earliest, which is the one he likely means.
+        const seen = new Set();
+        for (const it of items) {
+            const key = (it.target.label || '').toLowerCase();
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            const p = el('button', { class: 'pick', type: 'button' });
+            p.appendChild(el('div', { text: it.target.label }));
+            if (it.moment.caption) {
+                p.appendChild(el('div', { class: 'q-where', text: it.moment.caption }));
+            }
+            p.onclick = () => {
+                // Carry the beat it came from — the sentence writer needs the moment
+                // for context even though he never had to pick it.
+                RX.moment = it.moment; RX.facet = it.target.facet; RX.target = it.target;
+                RX.quick = null; renderDrawer();
+            };
+            picks.appendChild(p);
+        }
+        b.appendChild(picks);
+        b.appendChild(refineBox("no — the thing you actually mean…", (v) => {
+            RX.quick = null; RX.moment = RX.moment || (items[0] && items[0].moment);
+            if (RX.moment) retarget(v);
+        }));
+    }
 
     function renderCats(b) {
         b.appendChild(backBtn('another moment', () => { RX.moment = null; renderDrawer(); }));
