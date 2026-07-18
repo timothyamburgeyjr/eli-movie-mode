@@ -1756,6 +1756,7 @@ async def _run_relay(
     scene_situation: str = "",
     tim_message_id: Optional[int] = None,
     only_kin: Optional[str] = None,
+    react_only_all: bool = False,
 ) -> None:
     """Pass the mic around the room.
 
@@ -1775,35 +1776,27 @@ async def _run_relay(
         await _system_message(session_id, "No one's in the room — pick who's watching with you.")
         return
 
-    # A PRIVATE MOMENT. Handing one person a gummy is between Tim and that person —
-    # it is not an announcement, and having all eight answer it turns an intimate
-    # beat into a press conference. So this bypasses the circle entirely: no mic
-    # order to decide (one less coordinator call), nobody on the floor, nobody
-    # reacting. Just the two of them.
+    # A PRIVATE MOMENT — handing one person a gummy, or noticing how one person is
+    # doing. It's between the two of them, so the ROOM ITSELF is narrowed to that
+    # person and everything downstream follows naturally: nobody else is addressed,
+    # there's nobody to hand the floor to, and nobody left to lean in.
+    #
+    # THIS IS A NARROWING, NOT A BYPASS, and that distinction is the whole point.
+    # It used to short-circuit straight to _relay_to_kin, which skipped everything
+    # below — including the RULES. A `never` rule Tim had written was silently
+    # ignored on exactly these turns, the turn was never frozen so he couldn't rate
+    # it, and no room_note was written. Narrowing here means a private moment gets
+    # the identical treatment every other turn gets; it just has an audience of one.
     if only_kin:
-        kin = next((k for k in room if k.key == only_kin), None)
-        if kin is None or _pipeline_paused():
+        room = [k for k in room if k.key == only_kin]
+        if not room:
             return
-        presence = await _presence_standing_line()
-        await manager.broadcast({"type": "relay", "pending": [kin.key], "order": [kin.key]})
-        try:
-            await _relay_to_kin(
-                session_id, kin,
-                # NO MOVIE CONTEXT, enforced here rather than trusted to callers.
-                # Being handed a gummy has nothing to do with what's on screen, and
-                # a scene paragraph would only bury the one thing that just happened.
-                # Presence stays — where they are and who's in the room is the point.
-                scene="", history="", presence=presence,
-                dialogue=dialogue, reaction=reaction, verbatim=verbatim,
-                prior=[], mood=mood, addressed_names=[kin.first_name],
-            )
-        except Exception:
-            log.exception("private relay to %s failed", kin.key)
-        finally:
-            await manager.broadcast({"type": "relay", "pending": [], "order": []})
-            await _stage("")
-        log.info("private moment: %s only — the room was not told", kin.key)
-        return
+        addressed = list(room)
+        # No movie context on a private beat: being handed an edible has nothing to
+        # do with what's on screen, and a scene paragraph would bury the one thing
+        # that actually happened. Enforced here, not trusted to callers.
+        scene = ""
+        history = ""
 
     # NOTE — there was briefly a "first-person guard" here, rewriting `reaction`
     # into the third person on the theory that Kindroid renders an emote as the
@@ -1963,7 +1956,9 @@ async def _run_relay(
 
     order_keys = [c.key for c in addressed]
     mic_rationale = ""
-    if len(addressed) > 1:
+    # `react_only_all` hands the floor to nobody, so there is no order to decide —
+    # asking the coordinator would be paying for an answer we immediately discard.
+    if len(addressed) > 1 and not react_only_all:
         try:
             await _stage("Claude is deciding who speaks…")
             decision = await coordinator.decide_mic_order(
@@ -2029,6 +2024,20 @@ async def _run_relay(
     leaners: list["characters.Character"] = []
     barge_reasons: dict[str, str] = {}
     floor: list["characters.Character"] = []
+
+    # A NOTICE, NOT A CONVERSATION. Tim pulled up a bit of trivia: the room should
+    # hear it and may react, but it isn't a question and it shouldn't cost eight
+    # monologues — so nobody takes the floor and everybody is react-only.
+    #
+    # Like the private narrowing above, this shapes the AUDIENCE and nothing else.
+    # The laws have already run, so anyone Tim's own rule silenced is not in this
+    # list; the turn is still frozen below, so he can still rate what came back.
+    # (Empty `speakers` also means the barge-in below is skipped on its own — there
+    # is no floor being held for anyone to lean in over.)
+    if react_only_all:
+        silenced_now = {c.key for c in law_silenced}
+        speakers = []
+        floor = [c for c in room if c.key not in silenced_now]
     # WHO TIM TAPPED AND WHO STAYED QUIET ANYWAY, with the reason. Two ways in:
     #   • the coordinator PASSED them — the remark plainly wasn't theirs
     #   • a PRIVATE MOMENT — he was talking to one person and the room stood down
@@ -2400,53 +2409,33 @@ async def _run_relay(
         await _stage("")
 
 
-async def _relay_trivia_to_room(session_id: str, label: str, trivia_text: str) -> None:
+async def _relay_trivia_to_room(
+    session_id: str, label: str, trivia_text: str, tim_message_id: Optional[int] = None
+) -> None:
     """Hand the room a piece of trivia Tim just looked up. LIGHT TOUCH.
 
-    Until now this never happened at all: the trivia card was rendered on Tim's
-    dashboard and the kins were told nothing, so a fact he'd just discovered was
-    something he was holding alone. Now everyone gets the EXACT text (as the
-    protected verbatim block — the wording IS the point) and reacts briefly.
+    Before this existed the kins were told nothing at all — a fact Tim had just
+    discovered was something he was holding alone. They now get the EXACT text, as
+    the protected verbatim block (the wording IS the point), and react briefly.
 
-    React-only for the whole room, so nobody holds forth about a bit of trivia, and
-    no mic order is decided: there's no floor to hand out, which also saves the
-    coordinator call. Fires concurrently — a trivia tap shouldn't cost a full turn
-    of wall-clock.
+    THIS GOES THROUGH THE ORDINARY TURN, same as everything else. It used to be its
+    own little fan-out that called `_relay_to_kin` directly, which meant it quietly
+    skipped the whole apparatus below `_run_relay`'s front door: Tim's RULES never
+    fired (a `never` he had written was ignored on exactly these turns), the turn was
+    never frozen so he could not rate what came back, and no room_note recorded who
+    sat it out. `react_only_all` shapes only the AUDIENCE — nobody holds forth about
+    a bit of trivia — and everything else is the normal machinery.
     """
-    if _pipeline_paused():
-        return
-    room, _addressed = await _room_and_addressed()
-    if not room:
-        return
-
-    presence = await _presence_standing_line()
     what = f" ({label})" if label else ""
-    reaction = f"I look up a bit of trivia about the film{what} and read it out to everyone."
-
-    keys = [k.key for k in room]
-    outstanding = list(keys)
-    await manager.broadcast({"type": "relay", "pending": outstanding, "order": keys})
-
-    async def _notice(kin) -> None:
-        nonlocal outstanding
-        try:
-            await _relay_to_kin(
-                session_id, kin,
-                scene="", history="", presence=presence,
-                dialogue="", reaction=reaction, verbatim=trivia_text,
-                prior=[], mood=None, react_only=True, addressed_names=[],
-            )
-        except Exception:
-            log.exception("trivia relay to %s failed", kin.key)
-        finally:
-            outstanding = [k for k in outstanding if k != kin.key]
-            await manager.broadcast({"type": "relay", "pending": outstanding, "order": keys})
-
-    try:
-        await asyncio.gather(*(_notice(k) for k in room), return_exceptions=True)
-    finally:
-        await manager.broadcast({"type": "relay", "pending": [], "order": []})
-        await _stage("")
+    await _run_relay(
+        session_id,
+        # No scene: the fact is about the film, not about this second of it.
+        scene="", history="",
+        reaction=f"I look up a bit of trivia about the film{what} and read it out to everyone.",
+        verbatim=trivia_text,
+        react_only_all=True,
+        tim_message_id=tim_message_id,
+    )
 
 
 async def _process_tim_message(
@@ -5188,7 +5177,11 @@ async def api_movie_trivia(request: Request, _auth: dict = Depends(require_auth)
     # SHARE IT WITH THE ROOM. A fact Tim just discovered used to stop at his own
     # screen — the kins never heard a word of it. Light touch: they get the exact
     # text and react briefly. Fired as a task so the card renders instantly.
-    asyncio.create_task(_relay_trivia_to_room(session_id, display_label, trivia_text))
+    # Anchored to the trivia card itself, so the turn is frozen against a real row
+    # and Tim can come back and rate what the room did with it.
+    asyncio.create_task(
+        _relay_trivia_to_room(session_id, display_label, trivia_text, tim_message_id=msg_id)
+    )
     # Trivia interaction — give the mood ticker a chance to refresh now,
     # bypassing its cadence dedup so Tim sees up-to-date theming.
     asyncio.create_task(_maybe_tick_mood(force=True))

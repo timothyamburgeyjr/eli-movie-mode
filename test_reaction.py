@@ -321,7 +321,9 @@ _tsrc = inspect.getsource(app.api_movie_trivia)
 check("the trivia endpoint relays it to the room", "_relay_trivia_to_room" in _tsrc)
 _rsrc = inspect.getsource(app._relay_trivia_to_room)
 check("...as the protected verbatim, not a paraphrase", "verbatim=trivia_text" in _rsrc)
-check("...react-only, so nobody holds forth", "react_only=True" in _rsrc)
+check("...react-only, so nobody holds forth", "react_only_all=True" in _rsrc)
+check("...through the ORDINARY turn, not its own fan-out",
+      "_run_relay(" in _rsrc and "_relay_to_kin(" not in _rsrc)
 
 print("\n=== FACETS: fifteen of them, and the schema got SIMPLER ===")
 check("all five new facets exist",
