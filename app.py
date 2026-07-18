@@ -754,9 +754,17 @@ async def _mood_ticker_loop() -> None:
             log.exception("mood ticker iteration crashed — continuing")
 
 
-async def _fire_stoned_emote(session_id: str, narration: str) -> None:
-    """Post a first-person emote as a Tim message and run it through the
-    normal pipeline so Eli reacts to it.
+async def _fire_stoned_emote(
+    session_id: str, narration: str, only_kin: Optional[str] = None
+) -> None:
+    """Post a first-person emote as a Tim message and let the room answer it.
+
+    `only_kin` makes it PRIVATE — between Tim and that one person, and with NO
+    MOVIE CONTEXT AT ALL. Handing someone a gummy has nothing to do with what's on
+    screen, so the whole scene pipeline is skipped: no clip pulled off the seedbox,
+    no Gemini call, no scene narration in the packet. Just the moment itself, to the
+    person it's happening to. (It also stops eight kins answering a thing that was
+    plainly for one of them.)
     """
     content = f"_(*{narration}*)_"
     msg_id = await db.add_message(session_id, "tim", content)
@@ -770,6 +778,19 @@ async def _fire_stoned_emote(session_id: str, narration: str) -> None:
     await manager.broadcast(
         {"type": "message", "message": _message_to_payload(row_to_dict(row) or {})}
     )
+
+    if only_kin:
+        # Straight to the one person. No scene, no history — the emote IS the turn.
+        asyncio.create_task(
+            _run_relay(
+                session_id,
+                scene="", history="", dialogue="",
+                reaction=narration, mood=None, only_kin=only_kin,
+                tim_message_id=msg_id,
+            )
+        )
+        return
+
     # Spawn as non-user-initiated so we don't trigger another reinforcement.
     asyncio.create_task(
         _process_tim_message(msg_id, session_id, user_initiated=False)
@@ -817,7 +838,11 @@ async def _maybe_fire_reinforcement(session_id: str) -> None:
         intimate=kin.romantic,
     )
     if narration:
-        await _fire_stoned_emote(session_id, narration)
+        # Also private. This is Tim noticing how ONE person is doing — "you've gone
+        # quiet and soft-eyed". The other seven have no stake in it, and having them
+        # all weigh in on someone else's high is exactly the roll-call this function
+        # already goes out of its way to avoid.
+        await _fire_stoned_emote(session_id, narration, only_kin=kin.key)
 
 
 async def _broadcast_cost(session_id: Optional[str] = None) -> None:
@@ -1730,6 +1755,7 @@ async def _run_relay(
     tim_situation: str = "",
     scene_situation: str = "",
     tim_message_id: Optional[int] = None,
+    only_kin: Optional[str] = None,
 ) -> None:
     """Pass the mic around the room.
 
@@ -1747,6 +1773,36 @@ async def _run_relay(
     room, addressed = await _room_and_addressed()
     if not room:
         await _system_message(session_id, "No one's in the room — pick who's watching with you.")
+        return
+
+    # A PRIVATE MOMENT. Handing one person a gummy is between Tim and that person —
+    # it is not an announcement, and having all eight answer it turns an intimate
+    # beat into a press conference. So this bypasses the circle entirely: no mic
+    # order to decide (one less coordinator call), nobody on the floor, nobody
+    # reacting. Just the two of them.
+    if only_kin:
+        kin = next((k for k in room if k.key == only_kin), None)
+        if kin is None or _pipeline_paused():
+            return
+        presence = await _presence_standing_line()
+        await manager.broadcast({"type": "relay", "pending": [kin.key], "order": [kin.key]})
+        try:
+            await _relay_to_kin(
+                session_id, kin,
+                # NO MOVIE CONTEXT, enforced here rather than trusted to callers.
+                # Being handed a gummy has nothing to do with what's on screen, and
+                # a scene paragraph would only bury the one thing that just happened.
+                # Presence stays — where they are and who's in the room is the point.
+                scene="", history="", presence=presence,
+                dialogue=dialogue, reaction=reaction, verbatim=verbatim,
+                prior=[], mood=mood, addressed_names=[kin.first_name],
+            )
+        except Exception:
+            log.exception("private relay to %s failed", kin.key)
+        finally:
+            await manager.broadcast({"type": "relay", "pending": [], "order": []})
+            await _stage("")
+        log.info("private moment: %s only — the room was not told", kin.key)
         return
 
     # NOTE — there was briefly a "first-person guard" here, rewriting `reaction`
@@ -4828,28 +4884,18 @@ async def api_log_ingestion(request: Request, _auth: dict = Depends(require_auth
         "type": "ingestion", "who": who, "method": method, "peak_level": new_peak,
     })
 
-    # Post a Tim-POV emote of handing it over. NAMING the recipient is essential:
-    # this emote is relayed to the whole room, so "I pass you the pipe" would
-    # have every kin in the room believe they'd just been handed a joint.
+    # Post a Tim-POV emote of handing it over — PRIVATELY, to the person being
+    # handed it. Handing someone a gummy is a moment between the two of them; when
+    # it went to the whole room, all eight answered a thing that was clearly for one
+    # of them, which reads as a press conference rather than an intimate beat.
+    # (The recipient is still NAMED in the narration: the room may not answer, but
+    # the emote itself has to be unambiguous about who's being handed what.)
     if session_id and method != "sober":
         narration = taking_narration(method, kin_key=kin.key, name=kin.first_name)
         if narration:
-            content = f"_(*{narration}*)_"
-            msg_id = await db.add_message(session_id, "tim", content)
-            _, _, segments = parse_reply(content)
-            if segments:
-                await db.execute(
-                    "UPDATE messages SET segments_json = ? WHERE id = ?",
-                    (json.dumps(segments), msg_id),
-                )
-            row = await db.fetch_one("SELECT * FROM messages WHERE id = ?", (msg_id,))
-            await manager.broadcast(
-                {"type": "message", "message": _message_to_payload(row_to_dict(row) or {})}
-            )
-            # Auto-fired emote — don't count toward the reinforcement cadence.
-            asyncio.create_task(
-                _process_tim_message(msg_id, session_id, user_initiated=False)
-            )
+            # Same helper the reinforcement observations use — posting the emote and
+            # relaying it privately is one job, and it was duplicated here.
+            await _fire_stoned_emote(session_id, narration, only_kin=kin.key)
 
     return JSONResponse({"logged": True, "peak_level": new_peak})
 
