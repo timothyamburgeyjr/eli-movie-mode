@@ -35,8 +35,11 @@ def _brain(canned):
     captured = {}
 
     async def fake_call(parts, config, name, model=None):
-        captured["prompt"] = parts[0] if parts else ""
+        # The multimodal calls pass [media_part, prompt], so parts[0] is a types.Part,
+        # not the text. Take the first STRING — that's the prompt in every case.
+        captured["prompt"] = next((p for p in (parts or []) if isinstance(p, str)), "")
         captured["name"] = name
+        captured["config"] = config          # so the SCHEMA can be asserted, not just the text
         return _t.SimpleNamespace(text=json.dumps(canned))
 
     async def fake_track(response, **kw):
@@ -99,11 +102,15 @@ keys = asyncio.run(g.reaction_reemote(
 check("valid keys kept in order", keys[:1] == ["scared"], str(keys))
 check("hallucinated key dropped", "not_real" not in keys, str(keys))
 
-print("\n=== the draft prompt now guarantees cast + story ===")
-check("REACTION_DRAFT_SYSTEM_PROMPT demands a target per character",
-      "each character clearly on screen" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT.lower()
-      or "EACH character" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
-check("...and the story beat", "STORY BEAT" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
+print("\n=== the draft prompt still guarantees the people + the story ===")
+# The rule was rewritten when `people` arrived: it used to demand a target per
+# CHARACTER (filed under character/performance) and referred to a "cast" category
+# that never existed as a facet. Now it demands a target per PERSON, named by actor.
+check("REACTION_DRAFT_SYSTEM_PROMPT demands a target per person on screen",
+      "EACH person clearly on screen" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
+check("...named by the ACTOR, not the character",
+      "ACTOR'S REAL NAME" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
+check("...and the story beat", "BEAT ITSELF" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
 
 print("\n=== SONG: listen to the clip first, then verify; degrade gracefully ===")
 
@@ -315,6 +322,124 @@ check("the trivia endpoint relays it to the room", "_relay_trivia_to_room" in _t
 _rsrc = inspect.getsource(app._relay_trivia_to_room)
 check("...as the protected verbatim, not a paraphrase", "verbatim=trivia_text" in _rsrc)
 check("...react-only, so nobody holds forth", "react_only=True" in _rsrc)
+
+print("\n=== FACETS: fifteen of them, and the schema got SIMPLER ===")
+check("all five new facets exist",
+      {"people", "things", "place", "animals", "wardrobe"} <= set(gemini_brain.REACTION_FACETS),
+      str(gemini_brain.REACTION_FACETS))
+check("the old ten survive",
+      {"story", "character", "performance", "writing", "cinematography", "editing",
+       "sound", "production_design", "theme", "callback"} <= set(gemini_brain.REACTION_FACETS))
+check("production_design no longer claims costume/props (they'd never move)",
+      "costume" not in gemini_brain._FACET_HINTS.split("production_design")[1].split("\n")[0],
+      gemini_brain._FACET_HINTS.split("production_design")[1].split("\n")[0])
+check("the people/character distinction is spelled out",
+      "Gene Hackman" in gemini_brain._FACET_HINTS and "Harry Caul" in gemini_brain._FACET_HINTS)
+check("the draft prompt says an empty animals category is CORRECT",
+      "EMPTY `animals` CATEGORY IS THE CORRECT ANSWER" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
+check("...and that a wrong name is worse than no name",
+      "WRONG NAME IS WORSE THAN NO NAME" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
+check("the 'two rules' miscount is fixed",
+      "THE THREE RULES THAT MATTER" in gemini_brain.REACTION_DRAFT_SYSTEM_PROMPT)
+
+
+def _enums_under(node, path="", found=None):
+    """Every enum in the schema, with its path — the guard against re-introducing
+    the 400 INVALID_ARGUMENT that a deep enum caused once already."""
+    found = [] if found is None else found
+    if isinstance(node, dict):
+        if "enum" in node:
+            found.append(path)
+        for k, v in node.items():
+            _enums_under(v, f"{path}.{k}", found)
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            _enums_under(v, f"{path}[{i}]", found)
+    return found
+
+
+print("\n=== THE 400 GUARD: no enum may live under moments[] ===")
+CAST = [{"actor": "Gene Hackman", "character": "Harry Caul"}]
+DRAFT_CANNED = {
+    "scene_description": "s", "mood": "tense", "reads": [], "quotes": [],
+    "music": {"playing": False, "cue": ""},
+    "moments": [{
+        "offset_ms": 1000, "span_start_ms": 0, "span_end_ms": 2000,
+        "caption": "c", "why": "w",
+        "targets": [
+            {"label": "Gene Hackman", "facet": "people", "note": "Gene Hackman — plays Harry Caul", "emotions": ["love"]},
+            {"label": "Brad Pitt", "facet": "people", "note": "not in this film at all", "emotions": ["love"]},
+            {"label": "the mud-caked Bronco", "facet": "things", "note": "a car", "emotions": ["admiring"]},
+            {"label": "he goes still", "facet": "story", "note": "the beat", "emotions": ["tense_all_over"]},
+        ],
+    }],
+}
+_clipf = Path(tempfile.gettempdir()) / "facet_test_clip.mp4"
+_clipf.write_bytes(b"\x00\x01\x02fake")
+
+
+def _draft(cast):
+    g, cap = _brain(DRAFT_CANNED)
+    g.draft_model = "stub"
+    out = asyncio.run(g.reaction_draft(_clipf, clip_seconds=45, movie_title="The Conversation", cast=cast))
+    return out, cap
+
+
+res, cap = _draft(CAST)
+_enums = _enums_under(getattr(cap["config"], "response_schema", None) or {})
+_deep = [p for p in _enums if "moments" in p]
+check("NO enum anywhere under moments[] (the 400 guard)", _deep == [], str(_deep))
+check("...while flat enums (mood) are still allowed", any("mood" in p for p in _enums), str(_enums))
+
+print("\n=== THE PEOPLE GATE: a credited name ships, an invented one does not ===")
+_labels = [t["label"] for t in res["moments"][0]["targets"]]
+check("the credited actor survives", "Gene Hackman" in _labels, str(_labels))
+check("the actor who isn't in this film is DROPPED", "Brad Pitt" not in _labels, str(_labels))
+check("non-people targets are untouched", "the mud-caked Bronco" in _labels, str(_labels))
+res_nocast, _ = _draft([])
+_l2 = [t["label"] for t in res_nocast["moments"][0]["targets"]]
+check("with NO cast list, every people target is dropped",
+      "Gene Hackman" not in _l2 and "Brad Pitt" not in _l2, str(_l2))
+check("...and the rest of the beat still stands", "the mud-caked Bronco" in _l2, str(_l2))
+check("the cast rides into the prompt as ground truth",
+      "Gene Hackman" in cap["prompt"] and "ground truth" in cap["prompt"].lower(), cap["prompt"][:200])
+_clipf.unlink(missing_ok=True)
+
+print("\n=== SENTENCES: only `people` may leave the clip ===")
+for facet, want in (("people", True), ("story", False), ("character", False), ("performance", False)):
+    g, cap = _brain(SENT)
+    asyncio.run(g.reaction_sentences(
+        scene_description="s", moment_caption="c", moment_why="w",
+        target_label="Gene Hackman", target_note="n", target_facet=facet,
+        emotion_key="cracking_up"))
+    got = "THIS IS ABOUT A PERSON" in cap["prompt"]
+    check(f"{facet}: career-level block {'present' if want else 'ABSENT'}", got is want)
+
+print("\n=== RETARGET knows the new facets, and is gated too ===")
+RT2 = {"targets": [
+    {"label": "Gene Hackman", "facet": "people", "note": "x", "emotions": ["love"]},
+    {"label": "Brad Pitt", "facet": "people", "note": "x", "emotions": ["love"]},
+    {"label": "the shearling coat", "facet": "wardrobe", "note": "x", "emotions": ["admiring"]},
+]}
+g, cap = _brain(RT2)
+out = asyncio.run(g.reaction_retarget(
+    scene_description="s", moment_caption="c", moment_why="w", steer="the coat", cast=CAST))
+_rl = [t["label"] for t in out]
+check("a new facet (wardrobe) survives retarget", "the shearling coat" in _rl, str(_rl))
+check("the credited actor survives", "Gene Hackman" in _rl, str(_rl))
+check("the invented actor is dropped here too", "Brad Pitt" not in _rl, str(_rl))
+check("the facet hints are now injected (they never were)",
+      "wardrobe" in cap["prompt"] and "that jacket" in cap["prompt"], cap["prompt"][-400:])
+
+print("\n=== VERBATIM: every target reaches the room, not just quotes/songs ===")
+_pv = app._reaction_verbatim({}, {"key": "m0t1", "facet": "people",
+                                  "label": "Gene Hackman",
+                                  "note": "Gene Hackman — plays Harry Caul"})
+check("a people target names the actor AND the part", "Gene Hackman" in _pv and "Harry Caul" in _pv, _pv)
+_tv = app._reaction_verbatim({}, {"key": "m0t2", "facet": "things", "label": "the mud-caked Bronco"})
+check("an ordinary target ships its label", "mud-caked Bronco" in _tv, _tv)
+check("a target with no label still yields nothing",
+      app._reaction_verbatim({}, {"key": "m0t3", "facet": "story", "label": ""}) == "")
 
 print("\n" + ("ALL PASS" if ok else "FAILURES ABOVE"))
 sys.exit(0 if ok else 1)

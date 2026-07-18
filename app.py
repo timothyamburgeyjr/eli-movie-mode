@@ -257,6 +257,7 @@ async def _on_plex_event(event: str, data: dict[str, Any]) -> None:
                     year=data.get("year"),
                     director=data.get("director"),
                     runtime_minutes=runtime_min,
+                    cast=data.get("cast"),
                 )
                 title_label = data.get("title") or "Unknown"
                 await db.add_message(
@@ -380,6 +381,7 @@ async def _generate_briefing_card(session_id: str, movie_id: int, plex_data: dic
             series_title=plex_data.get("series_title"),
             season_number=plex_data.get("season_number"),
             episode_number=plex_data.get("episode_number"),
+            cast=plex_data.get("cast"),
         )
     except Exception:
         log.exception("briefing generation failed")
@@ -3206,6 +3208,7 @@ async def api_session_start(_auth: dict = Depends(require_auth)):
             year=plex.get("year"),
             director=plex.get("director"),
             runtime_minutes=runtime_min,
+            cast=plex.get("cast"),
         )
         asyncio.create_task(_generate_briefing_card(session_id, movie_id, dict(plex)))
 
@@ -4980,6 +4983,9 @@ async def api_movie_trivia_topics(request: Request, _auth: dict = Depends(requir
         result = await gemini_brain.generate_scene_topics(
             movie_title=title, year=year,
             scene_clip=clip_path, timestamp_label=timestamp_label,
+            # Ground truth for the Cast sub-page, which until now was Gemini naming
+            # faces off a 360p clip with nothing to check itself against.
+            cast=plex.get("cast"),
         )
     except Exception:
         log.exception("topics generation failed")
@@ -5233,6 +5239,9 @@ async def api_reaction_draft(request: Request, _auth: dict = Depends(require_aut
             session_history=await build_session_history_for_gemini(active["id"]),
             media_resolution=media_res,
             reacting_to=reacting_to,
+            # Who's actually in this film, from the library — so a `people` target can
+            # say "Gene Hackman" instead of "the man in the coat".
+            cast=plex.get("cast"),
         )
     except GeminiError as e:
         clip_path.unlink(missing_ok=True)
@@ -5274,6 +5283,9 @@ async def api_reaction_draft(request: Request, _auth: dict = Depends(require_aut
         "clip_seconds": lookback,
         "playhead_sec": playhead_sec,
         "movie_title": plex.get("display_title") or plex.get("title") or "",
+        # Frozen with the title, and for exactly the same reason: by the time he
+        # refines or retargets, current_state() may already be a different film.
+        "cast": plex.get("cast") or [],
         "query": reacting_to,
     }
 
@@ -5444,13 +5456,18 @@ def _reaction_line_with_song(draft: dict, target: dict, first_person: str) -> st
 
 
 def _reaction_verbatim(draft: dict, target: dict) -> str:
-    """The words that must reach the room EXACTLY, or "" for an ordinary target.
+    """The thing that must reach the room EXACTLY — never "" for a real target.
 
-    The reaction narration already mentions the line or the track, but narration is
-    something the coordinator is allowed to tighten to fit the cap. This is the same
-    content handed over again in the PROTECTED slot, where it can't be paraphrased
-    away — because for a quote or a lyric, the exact wording IS the thing being
-    reacted to. "He says something about faith" is not the line.
+    The reaction narration already mentions what he picked, but narration is something
+    the coordinator is allowed to tighten to fit the cap. This is the same content
+    handed over again in the PROTECTED slot, where it can't be paraphrased away —
+    because the exact thing IS what's being reacted to. "He says something about faith"
+    is not the line, and "I love him" tells nobody it was Gene Hackman.
+
+    Quotes and songs get their special shapes; EVERY OTHER target falls through to its
+    own label. That fallback is the fix for the gap Tim caught — before it, a reaction
+    to anything that wasn't a quote or a song reached the room as the generated
+    sentence alone, with the specific thing he'd chosen nowhere in the packet.
     """
     quote = next(
         (q for q in draft.get("quotes", []) if q.get("target_key") == target.get("key")),
@@ -5471,7 +5488,17 @@ def _reaction_verbatim(draft: dict, target: dict) -> str:
             if lyric:
                 bits.append(f'a line from it: "{lyric}"')
             return " · ".join(bits)
-    return ""
+
+    # Any other target: hand over the thing itself. `people` reads as a bare name, so
+    # the note (which carries "<ACTOR> — plays <CHARACTER>") is what makes it legible
+    # to someone who isn't looking at the screen.
+    label = (target.get("label") or "").strip()
+    if not label:
+        return ""
+    note = (target.get("note") or "").strip()
+    if target.get("facet") == "people" and note:
+        return f"The person he means: {note}"
+    return f"What he's reacting to: {label}"
 
 
 def _emotion_catalogue() -> dict[str, Any]:
@@ -5536,6 +5563,9 @@ async def api_reaction_refine(request: Request, _auth: dict = Depends(require_au
             session_history=await build_session_history_for_gemini(draft["session_id"]),
             media_resolution=(await db.get_setting("media_resolution") or "low").lower(),
             reacting_to=text,
+            # The FROZEN cast, like the frozen title above — never live Plex state,
+            # which by now may have moved on to another film entirely.
+            cast=draft.get("cast"),
         )
     except GeminiError as e:
         log.exception("reaction refine failed")
@@ -5726,6 +5756,7 @@ async def api_reaction_retarget(request: Request, _auth: dict = Depends(require_
             moment_why=moment["why"],
             steer=text,
             movie_title=draft.get("movie_title", ""),
+            cast=draft.get("cast"),
         )
     except GeminiError as e:
         log.exception("reaction retarget failed")

@@ -28,6 +28,12 @@ Listener = Callable[[str, dict], Awaitable[None]]
 
 UNREACHABLE_SLEEP = 30.0
 
+# A marathon is ~4 films; 8 is generous and bounded.
+META_CACHE_MAX = 8
+# Plex returns 30+ roles. Billing order means the tail is spear-carriers who are never
+# on screen long enough to react to, and every name is prompt tokens.
+CAST_LIMIT = 12
+
 
 class PlexMonitor:
     def __init__(self) -> None:
@@ -45,6 +51,11 @@ class PlexMonitor:
         # Everything genuinely on offer (one per player, ghosts already dropped). The UI
         # asks him to choose when this has more than one thing in it.
         self._candidates: list[dict[str, Any]] = []
+        # /library/metadata responses, keyed by ratingKey. THE SESSION PAYLOAD IS THIN:
+        # no Part.key, and no Role[]. This endpoint has both — and we used to fetch it,
+        # take the single field we wanted, and throw the ground-truth cast on the floor.
+        # Memoized because it's immutable per film and we poll every few seconds.
+        self._meta_cache: dict[str, dict] = {}
 
     # ─── Listener API ─────────────────────────────────────────────
     def add_listener(self, fn: Listener) -> None:
@@ -140,29 +151,64 @@ class PlexMonitor:
             log.debug("plex returned non-JSON: %s", e)
             return None
 
-    async def _fetch_library_part_key(self, rating_key: str) -> Optional[str]:
-        """Plex /status/sessions omits Part.key — fetch it from library metadata."""
+    async def _fetch_library_metadata(self, rating_key: str) -> Optional[dict]:
+        """One GET of /library/metadata/{key}, memoized. Returns Metadata[0] or None.
+
+        Both the Part.key and the cast come from here, so the fetch is shared rather
+        than made twice. FAILURES ARE NOT CACHED: if Plex happens to be restarting the
+        second we first see a film, that film must not be permanently cast-less — we
+        return None and try again on the next poll.
+        """
         if self._client is None or not rating_key:
             return None
-        url = f"{settings.plex_url.rstrip('/')}/library/metadata/{rating_key}"
+        key = str(rating_key)
+        cached = self._meta_cache.get(key)
+        if cached is not None:
+            return cached
+        url = f"{settings.plex_url.rstrip('/')}/library/metadata/{key}"
         headers = {"Accept": "application/json", "X-Plex-Token": settings.plex_token}
         try:
             r = await self._client.get(url, headers=headers)
             r.raise_for_status()
             data = r.json()
         except (httpx.HTTPError, ValueError) as e:
-            log.debug("library metadata fetch failed: %s", e)
+            log.debug("library metadata fetch failed for %s: %s", key, e)
             return None
         metas = (data.get("MediaContainer") or {}).get("Metadata") or []
-        if not metas:
+        if not metas or not isinstance(metas[0], dict):
             return None
-        media = metas[0].get("Media") or []
+        if len(self._meta_cache) >= META_CACHE_MAX:
+            self._meta_cache.pop(next(iter(self._meta_cache)))   # oldest insert evicted
+        self._meta_cache[key] = metas[0]
+        return metas[0]
+
+    async def _fetch_library_part_key(self, rating_key: str) -> Optional[str]:
+        """Plex /status/sessions omits Part.key — read it from library metadata."""
+        meta = await self._fetch_library_metadata(rating_key)
+        if not meta:
+            return None
+        media = meta.get("Media") or []
         if not media:
             return None
         parts = media[0].get("Part") or []
         if not parts:
             return None
         return parts[0].get("key")
+
+    async def _fetch_library_cast(
+        self, rating_key: str, show_rating_key: Optional[str] = None
+    ) -> list[dict[str, Any]]:
+        """The billed cast for this item. Empty list when Plex has none, or is down.
+
+        TV: which level carries Role[] depends on the agent. The newer Plex agents put
+        the SERIES regulars on the show and only guest stars on the episode; older ones
+        leave the episode bare. So try the episode first (the more specific answer when
+        it's there), then fall back to the show. Without the fallback, TV gets no cast.
+        """
+        cast = _parse_roles(await self._fetch_library_metadata(rating_key))
+        if not cast and show_rating_key:
+            cast = _parse_roles(await self._fetch_library_metadata(show_rating_key))
+        return cast
 
     async def _mark_unreachable(self) -> None:
         if not self._unreachable:
@@ -181,13 +227,28 @@ class PlexMonitor:
         rating_key = active["rating_key"]
         state = active["state"]
 
-        # Session responses omit Part.key; fetch it from library metadata.
-        # Reuse the previous part_key if we're still on the same media.
+        # Session responses omit Part.key AND Role[]; both come from library metadata.
+        # Reuse the previous values if we're still on the same media.
+        same_media = last.get("rating_key") == rating_key
         if not active.get("part_key"):
-            if last.get("rating_key") == rating_key and last.get("part_key"):
+            if same_media and last.get("part_key"):
                 active["part_key"] = last["part_key"]
             else:
                 active["part_key"] = await self._fetch_library_part_key(rating_key)
+
+        # THE CAST IS FETCHED INDEPENDENTLY OF part_key. Direct-play sessions sometimes
+        # carry Part.key already, which short-circuits the branch above — and the cast
+        # would then never be fetched for exactly those films. Cheap either way: the
+        # metadata is memoized, so a cast-less film costs dict lookups, not HTTP.
+        if same_media and last.get("cast"):
+            active["cast"] = last["cast"]
+        else:
+            active["cast"] = await self._fetch_library_cast(
+                rating_key, active.get("grandparent_rating_key")
+            )
+            # The likeliest failure here is an empty cast everywhere that nobody
+            # notices, because every consumer degrades silently to its old behaviour.
+            log.info("plex: cast for %s -> %d names", rating_key, len(active["cast"]))
 
         if not last:
             self._last = active
@@ -298,6 +359,66 @@ def _extract_active(
     return cands[0]
 
 
+def _parse_roles(meta: Optional[dict]) -> list[dict[str, Any]]:
+    """Plex `Role[]` -> [{actor, character, thumb}]. The cast, as the library knows it.
+
+    Kept in the order Plex returns it, which is BILLING ORDER — that ordering is itself
+    information (the first names are the film's leads), so it is never sorted. Truncating
+    from the front therefore always keeps the people most likely to be on screen.
+    """
+    if not isinstance(meta, dict):
+        return []
+    roles = meta.get("Role")
+    if not isinstance(roles, list):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for r in roles:
+        if not isinstance(r, dict):
+            continue
+        actor = str(r.get("tag") or "").strip()
+        if not actor:
+            continue
+        dedupe = actor.casefold()
+        if dedupe in seen:          # Plex credits an actor twice when they play two parts
+            continue
+        seen.add(dedupe)
+        out.append({
+            "actor": actor,
+            "character": str(r.get("role") or "").strip() or None,
+            "thumb": str(r.get("thumb") or "").strip() or None,
+        })
+        if len(out) >= CAST_LIMIT:
+            break
+    return out
+
+
+def format_cast(
+    cast: Optional[list[dict[str, Any]]],
+    *,
+    limit: int = 8,
+    header: str = "Cast",
+) -> str:
+    """The cast as one prompt line, or "" when there's nothing to say.
+
+    Returning "" for an empty cast means every call site is `if s: parts.append(s)` and
+    no dangling "Cast:" label with nothing after it ever reaches a prompt. Truncation is
+    from the front, which is billing order, which is the leads.
+    """
+    if not cast:
+        return ""
+    bits: list[str] = []
+    for c in cast[:limit]:
+        actor = str((c or {}).get("actor") or "").strip()
+        if not actor:
+            continue
+        character = str((c or {}).get("character") or "").strip()
+        bits.append(f"{actor} as {character}" if character else actor)
+    if not bits:
+        return ""
+    return f"{header} (from the Plex library, billing order): " + "; ".join(bits)
+
+
 def _parse_meta(m: dict) -> dict:
     player = m.get("Player", {}) or {}
     part_key: Optional[str] = None
@@ -365,6 +486,11 @@ def _parse_meta(m: dict) -> dict:
         "summary": m.get("summary") or "",
         # New TV fields — None for movies.
         "series_title": series_title,
+        # The SHOW's ratingKey. Needed because Role[] frequently lives on the series
+        # rather than the episode — without it, TV gets no cast at all.
+        "grandparent_rating_key": str(m.get("grandparentRatingKey") or "") or None,
+        # Filled in by _handle from library metadata; the session payload has no Role[].
+        "cast": [],
         "season_title": season_title,
         "season_number": season_number,
         "episode_number": episode_number,

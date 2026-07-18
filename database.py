@@ -290,6 +290,11 @@ class Database:
         # Lightweight migrations for columns added after initial schema.
         await self._ensure_column("messages", "segments_json", "TEXT")
         await self._ensure_column("movies", "mood", "TEXT")
+        # THE CAST, as Plex knows it: [{"actor","character","thumb"}, …] in billing
+        # order. Plex has always returned this on /library/metadata and the app has
+        # always thrown it away. Stored on the row that's already the per-film record,
+        # so a briefing regenerated after a restart still knows who is in the film.
+        await self._ensure_column("movies", "cast_json", "TEXT")
         await self._ensure_column("ingestion_events", "peak_level", "INTEGER")
         # WHICH kin replied. `sender` only says 'eli' vs 'tim' vs 'system' — it
         # was written as the literal 'eli' for every companion, so the old
@@ -762,14 +767,16 @@ class Database:
         director: Optional[str] = None,
         runtime_minutes: Optional[int] = None,
         briefing: Optional[str] = None,
+        cast: Optional[list[dict[str, Any]]] = None,
     ) -> int:
         now = datetime.now(timezone.utc).isoformat()
         cursor = await self.execute(
             """INSERT INTO movies
             (session_id, plex_rating_key, title, year, director, runtime_minutes,
-             briefing, started_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (session_id, plex_rating_key, title, year, director, runtime_minutes, briefing, now),
+             briefing, started_at, cast_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, plex_rating_key, title, year, director, runtime_minutes,
+             briefing, now, json.dumps(cast) if cast else None),
         )
         return cursor.lastrowid or 0
 

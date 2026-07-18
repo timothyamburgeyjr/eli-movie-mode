@@ -7206,10 +7206,28 @@
     };
 
     const FACET_NAMES = {
-        story: 'Story', character: 'Character', performance: 'Performance',
-        writing: 'Writing', cinematography: 'Cinematography', editing: 'Editing',
-        sound: 'Sound', production_design: 'Production', theme: 'Theme',
+        story: 'Story', people: 'People', character: 'Character',
+        performance: 'Performance', writing: 'Writing',
+        cinematography: 'Cinematography', editing: 'Editing', sound: 'Sound',
+        production_design: 'Production', things: 'Things', place: 'Place',
+        animals: 'Animals', wardrobe: 'Wardrobe', theme: 'Theme',
         callback: 'Callback',
+    };
+
+    // THE ORDER CATEGORIES APPEAR IN, always. renderCats used to iterate whatever
+    // order the model happened to emit targets in — tolerable at 10 facets, but at 15
+    // it means "People" sits in a different place every moment, which is exactly the
+    // thing you cannot afford on a phone in a dark room. Grouped who → what happens →
+    // what's in it → how it's made. Facets with no targets simply don't render.
+    const FACET_ORDER = [
+        'people', 'character', 'performance',
+        'story', 'writing', 'theme', 'callback',
+        'things', 'wardrobe', 'animals', 'place',
+        'cinematography', 'editing', 'sound', 'production_design',
+    ];
+    const facetRank = (f) => {
+        const i = FACET_ORDER.indexOf(f);
+        return i === -1 ? FACET_ORDER.length : i;   // unknown keys sort last, never crash
     };
 
     function reactAvailable() {
@@ -7607,7 +7625,8 @@
             counts[t.facet] = (counts[t.facet] || 0) + 1;
         }
         const cats = el('div', { class: 'cats' });
-        for (const [facet, n] of Object.entries(counts)) {
+        const ordered = Object.entries(counts).sort((a, b) => facetRank(a[0]) - facetRank(b[0]));
+        for (const [facet, n] of ordered) {
             const c = el('button', { class: 'cat', type: 'button' });
             c.appendChild(el('span', { text: FACET_NAMES[facet] || facet }));
             c.appendChild(el('span', { class: 'cat-n', text: String(n) }));

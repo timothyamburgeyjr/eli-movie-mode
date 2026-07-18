@@ -18,6 +18,9 @@ from google.genai import types
 
 import emotions
 import facts
+# The cast formatter lives with the thing that produces the cast. Cycle-free:
+# plex_monitor imports only config/httpx/asyncio.
+from plex_monitor import format_cast
 
 # ─── The mood vocabulary ──────────────────────────────────────────────
 #
@@ -218,24 +221,43 @@ BRIEFING_SYSTEM_PROMPT = (
 
 # ─── Reaction drawer ──────────────────────────────────────────────────
 #
-# The 10 facets ARE the drawer's category step. Coarser and they stop being
+# The 15 facets ARE the drawer's category step. Coarser and they stop being
 # useful; finer and they stop being skimmable.
+#
+# The five CONCRETE ones — people, things, place, animals, wardrobe — exist because
+# the craft vocabulary had nowhere to put the two most natural things anyone says on
+# a couch. "That is a really cool car" is not `production_design`, and the person you
+# love is Gene Hackman, not "the performance". They're populated only when the clip
+# actually contains one; see rule 3.
 REACTION_FACETS = (
-    "story", "character", "performance", "writing", "cinematography",
-    "editing", "sound", "production_design", "theme", "callback",
+    "story", "people", "character", "performance", "writing",
+    "cinematography", "editing", "sound", "production_design",
+    "things", "place", "animals", "wardrobe", "theme", "callback",
 )
 
+# NOTE the `production_design` line no longer says "costume, props". Leave those in
+# and the model keeps filing jackets and cars there out of habit, and `wardrobe` and
+# `things` come back permanently empty.
 _FACET_HINTS = """\
   story             what happens — plot, stakes, a reveal, a turn
-  character         who someone is — a choice, a flaw, a shift in them
+  people            the ACTOR, by real name — the human being, not the part they play
+  character         who someone is IN THE FILM — a choice, a flaw, a shift in them
   performance       the ACTING — a look, a delivery, a hesitation, a hand
   writing           the words — a line, a joke, an exchange, what's unsaid
   cinematography    the IMAGE — the shot, the lens, the light, the colour, the move
   editing           the CUT — pacing, a hard cut, a hold, a match, a montage
   sound             what you HEAR — the score, a cue, silence, sound design, a mix choice
-  production_design the WORLD — sets, costume, props, effects, make-up
+  production_design the WORLD as built — sets, effects, make-up, the overall look
+  things            one OBJECT that matters — a car, a gun, a phone, a sandwich
+  place             WHERE this is — that diner, the desert highway, that kitchen
+  animals           the dog, the horse, the cat — an animal actually on screen
+  wardrobe          what someone is WEARING — that jacket, the boots, the hat
   theme             what it's ABOUT under the surface
-  callback          it rhymes with something earlier in the film"""
+  callback          it rhymes with something earlier in the film
+
+  people vs character: `people` is Gene Hackman. `character` is Harry Caul.
+  one nameable object is `things`, one garment is `wardrobe`, the location itself is
+  `place` — `production_design` is what's left over."""
 
 # A SCHEMA IS PERMISSION, NOT COMPULSION. Handed a free `facet` field, Gemini
 # returns overwhelmingly plot summary — that's the default gravity of a video
@@ -247,13 +269,41 @@ _FACET_HINTS = """\
 # So the specificity has to be *forced*, and the facet spread has to be
 # *required*. These two directives are the load-bearing part of this feature —
 # without them the whole "milk the clip" investment silently buys nothing.
+def _cast_name_tokens(cast: Optional[list[dict[str, Any]]]) -> set[str]:
+    """Every name token Plex actually credited, casefolded — the allow-list for a
+    `people` label. Both halves of a name go in, so "Hackman" and "Gene" each match."""
+    out: set[str] = set()
+    for c in cast or []:
+        for tok in re.split(r"[^\w']+", str((c or {}).get("actor") or "")):
+            if len(tok) > 1:
+                out.add(tok.casefold())
+    return out
+
+
+def _people_label_ok(label: str, tokens: set[str]) -> bool:
+    """Does this `people` label name someone Plex actually credited?
+
+    A CONFIDENTLY WRONG ACTOR NAME IS THE WORST THING THIS FEATURE CAN PRODUCE — it
+    gets spoken to the room as fact. Face-matching runs at MEDIA_RESOLUTION_LOW, so the
+    prompt's "don't guess" is not enough on its own; this is the hard gate behind it.
+    No cast list means every `people` target is an unverifiable guess, so they all go.
+    """
+    if not tokens:
+        return False
+    return any(
+        tok.casefold() in tokens
+        for tok in re.split(r"[^\w']+", label or "")
+        if len(tok) > 1
+    )
+
+
 REACTION_DRAFT_SYSTEM_PROMPT = """\
 You are indexing a window of a film so a viewer can react to a specific thing in it.
 
 Return the BEATS worth reacting to, and for each beat, the THINGS about it a viewer
 might react to. The viewer will pick one beat, then one thing, then how they felt.
 
-── THE TWO RULES THAT MATTER ──
+── THE THREE RULES THAT MATTER ──
 
 1. SPREAD THE FACETS. Each moment must offer targets spanning at least THREE
    different facets. Never return four story targets. Someone who wants to praise
@@ -273,16 +323,40 @@ might react to. The viewer will pick one beat, then one thing, then how they fel
    out loud — the cut, the lens, a background performance, a colour shift, silence
    where you expected a sting.
 
-3. ALWAYS OFFER THE CAST AND THE STORY. Every moment MUST include:
-     • a target for EACH character clearly on screen — named, concrete, about what
-       they are DOING ("the flat way Jonah Hill signs without looking up", not
-       "Jonah Hill's performance"). This is the `character`/`performance` facet.
-     • one target for the STORY BEAT itself — what just happened in the plot, the
-       thing that moved ("he realises the queue is for someone else"). The `story`
-       facet.
-   The viewer opens a "cast" and a "story" category expecting them full; never leave
-   them empty. The other facets (sound, cinematography, production…) are populated
-   only when the clip actually gives you something for them.
+3. ALWAYS OFFER PEOPLE AND STORY. Two categories must never come back empty:
+
+     • `people` — one target for EACH person clearly on screen, labelled with the
+       ACTOR'S REAL NAME from the cast list you were given. Not the character:
+       "Gene Hackman", not "Harry Caul". This is the category that lets a viewer say
+       "god I love Gene Hackman" — it is about the human being who has been in forty
+       other films, and this beat is only the occasion for saying so.
+       If you cannot confidently match a face to the cast list, leave that person out
+       of `people` entirely and give them a `character` target with a plain descriptor
+       instead. A WRONG NAME IS WORSE THAN NO NAME.
+
+     • `story` — one target for the BEAT ITSELF, what just moved in the plot
+       ("he realises the queue is for someone else").
+
+   Anyone worth a `people` target is usually also worth a `character` or `performance`
+   target — what they're DOING right now ("the flat way he signs without looking up").
+   Offer both. They are different reactions: one is about the actor, one is about the
+   moment.
+
+   THE CONCRETE FIVE ARE CONDITIONAL. `things`, `place`, `animals` and `wardrobe` are
+   offered ONLY when the clip actually puts one in front of you and it is worth naming.
+   Most scenes contain no animal. AN EMPTY `animals` CATEGORY IS THE CORRECT ANSWER; an
+   invented one is a bug. Never manufacture a target to fill a category — the viewer
+   sees empty ones as absent, not as missing.
+
+   When you DO offer them, rule 2 still governs — name the actual thing, not its class:
+
+      BAD: "The car"                    GOOD: "the mud-caked Bronco he leaves running"
+      BAD: "The setting"                GOOD: "that empty diner with the one lit booth"
+      BAD: "Costume design"             GOOD: "the shearling coat two sizes too big"
+      BAD: "An animal is present"       GOOD: "the dog that won't stop watching the door"
+
+   `people` is the ONE exception to rule 2, and only in its LABEL: a label there may be
+   just a name, because the name IS the concrete thing.
 
 ── THE FACETS ──
 {facets}
@@ -308,7 +382,7 @@ goes still. The chatter behind him keeps going."
 ── COUNTS (the schema does not enforce these — you must) ──
   moments   3-8, however many the window actually contains. A quiet scene has few,
             a busy one has many. Do NOT pad to reach a number.
-  targets   3-6 per moment.
+  targets   4-8 per moment.
   emotions  4-6 keys per target.
 
 offset_ms is measured from the START of the clip (0 = clip start).
@@ -356,8 +430,9 @@ VARY THE MANNER, not just the wording. One should be big and physical, one small
 private, one that says something out loud, one that's almost nothing. That range is
 how he tells you what actually happened in his body.
 
-Be SPECIFIC to the thing he picked. Name it. If he's reacting to the score dropping
-out, the sentence is about the score dropping out — not a generic "wow, intense".
+Be SPECIFIC to the thing he picked. Name it — the shot, the line, the object, or the
+PERSON. If he's reacting to the score dropping out, the sentence is about the score
+dropping out — not a generic "wow, intense".
 
 Present tense. 1-2 sentences each, under 220 characters. No emoji. No stage directions.
 Do not have him address anyone by name."""
@@ -1274,6 +1349,7 @@ class GeminiBrain:
         year: Optional[int] = None,
         scene_clip: Optional[Path] = None,
         timestamp_label: str = "",
+        cast: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, Any]:
         """Extract a full multi-category subject map for the X-Ray menu.
 
@@ -1316,10 +1392,28 @@ class GeminiBrain:
             else "No clip — return movie-wide subjects across all categories."
         )
 
+        # GROUND TRUTH, and it has to shout. This call is grounded and carries no
+        # response_schema, so Google will confidently contradict the library on anything
+        # obscure — and until now this menu identified actors from a 360p clip with
+        # nothing whatsoever to check against.
+        cast_block = ""
+        topics_cast_line = format_cast(cast, limit=12)
+        if topics_cast_line:
+            cast_block = (
+                f"\nGROUND TRUTH — {topics_cast_line}\n"
+                "This list comes from the film's own library metadata and is CORRECT. For "
+                "\"cast\" and \"characters\", pick from this list — the ones actually visible "
+                "or audible in the attached clip — and reproduce the names and character "
+                "pairings EXACTLY as written above. If your own search disagrees with this "
+                "list, THE LIST WINS. Only add someone outside it if they are plainly on "
+                "screen and genuinely absent from it (an uncredited or bit part), and never "
+                "drop a listed actor you can see.\n"
+            )
+
         prompt = f"""You are populating an X-Ray-style trivia menu for a movie. {scene_clause}
 
 Movie: {title_str}{ts_line}
-
+{cast_block}
 Use Google Search to verify factual subjects (real actor names, real crew, real awards). Output STRICT JSON only, no markdown fences, no commentary, exactly this shape:
 
 {{
@@ -1639,6 +1733,7 @@ Return ONLY the JSON object, nothing else.
         series_title: Optional[str] = None,
         season_number: Optional[int] = None,
         episode_number: Optional[int] = None,
+        cast: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, Any]:
         """Returns {briefing, scores, latency_ms, usage}.
 
@@ -1662,6 +1757,11 @@ Return ONLY the JSON object, nothing else.
             facts.append(f"Year: {year}")
         if director:
             facts.append(f"Director: {director}")
+        # The system prompt has always asked for "notable cast and what they bring";
+        # it has simply never been given anyone's name.
+        briefing_cast_line = format_cast(cast, limit=8)
+        if briefing_cast_line:
+            facts.append(briefing_cast_line)
         if runtime_minutes:
             facts.append(f"Runtime: {runtime_minutes} min")
         if summary:
@@ -1810,6 +1910,7 @@ Return ONLY the JSON object, nothing else.
         session_history: str = "",
         media_resolution: str = "low",
         reacting_to: str = "",
+        cast: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, Any]:
         """ONE call. One clip. Everything the drawer needs.
 
@@ -1862,8 +1963,19 @@ Return ONLY the JSON object, nothing else.
             #
             #    The vocabulary belongs in the PROMPT (where it costs ~550 tokens and
             #    nothing else), and validation belongs in PYTHON below — which was
-            #    already dropping unknown keys, so the enum was buying nothing. Small
-            #    enums on flat fields (facet: 10, mood: 16) are fine and stay.
+            #    already dropping unknown keys, so the enum was buying nothing.
+            #
+            #    This comment USED to end "small enums on flat fields (facet: 10,
+            #    mood: 16) are fine and stay." That was right about `mood` and WRONG
+            #    about `facet`. `mood` really is flat — schema.properties.mood. `facet`
+            #    is not: it sits at moments[] -> targets[] -> facet, the exact depth
+            #    that fired the 400, and it survived at 10 values only on the headroom
+            #    that was left. The schema has since grown `quotes[]` and `music`, so
+            #    there is LESS room now than when it blew up. When the vocabulary went
+            #    10 -> 15, the enum came off rather than growing. The facet list lives
+            #    in the prompt; the gate is the validation loop below.
+            #    `reaction_retarget`'s schema is genuinely flat — one array, no video —
+            #    so it keeps its enum.
             target_schema = {
                 "type": "object",
                 "properties": {
@@ -1875,10 +1987,24 @@ Return ONLY the JSON object, nothing else.
                             "looking up', NOT 'Dialogue delivery'."
                         ),
                     },
-                    "facet": {"type": "string", "enum": list(REACTION_FACETS)},
+                    "facet": {
+                        "type": "string",
+                        "description": (
+                            "One facet KEY from the list in the prompt, spelled exactly as "
+                            "it appears there ('production_design', not 'Production Design'). "
+                            "No enum here on purpose — see the complexity note above; "
+                            "unknown keys are dropped in Python."
+                        ),
+                    },
                     "note": {
                         "type": "string",
-                        "description": "One line of what it actually is. Never shown to Tim — this is what the sentence writer gets.",
+                        "description": (
+                            "One line of what it actually is. Never shown to Tim — this is "
+                            "what the sentence writer gets. For a `people` target use exactly: "
+                            "'<ACTOR> — plays <CHARACTER>; here they're <what they do in this "
+                            "beat>.' The sentence writer needs both halves: the actor to "
+                            "praise, and the moment as the occasion."
+                        ),
                     },
                     "emotions": {
                         "type": "array",
@@ -2016,6 +2142,20 @@ Return ONLY the JSON object, nothing else.
             parts = [f"This clip is the last {clip_seconds} seconds of the film."]
             if movie_title:
                 parts.append(f"Movie: {movie_title}.")
+            # WHO IS ACTUALLY IN THIS FILM, authoritatively. Its own block, never folded
+            # into movie_context — that field is re-truncated to 1200 chars below, so a
+            # synopsis plus a cast list would be silently cut off mid-name.
+            cast_line = format_cast(cast, limit=8)
+            if cast_line:
+                parts.append(
+                    f"\n{cast_line}\n"
+                    "This is ground truth from the library, not a guess. These are the "
+                    "ONLY names you may use for a `people` target: name the ACTOR for "
+                    "anyone clearly on screen. If a face is turned away, in shadow, a "
+                    "background extra, or you are simply unsure which of these it is, do "
+                    "NOT guess — give them no `people` target at all. Uncredited faces "
+                    "are not on this list and never get one."
+                )
             if movie_context.strip():
                 parts.append(f"\nWhat this film is:\n{movie_context.strip()[:1200]}")
             if session_history.strip():
@@ -2081,6 +2221,7 @@ Return ONLY the JSON object, nothing else.
             # emotion keys are dropped silently — the prompt supplies the vocabulary,
             # this is the gate.
             clip_ms = int(clip_seconds * 1000)
+            cast_tokens = _cast_name_tokens(cast)
             moments: list[dict[str, Any]] = []
             for i, m in enumerate((parsed.get("moments") or [])[:8]):
                 try:
@@ -2088,13 +2229,18 @@ Return ONLY the JSON object, nothing else.
                 except (TypeError, ValueError):
                     continue
                 targets = []
-                for t in (m.get("targets") or [])[:6]:
+                for t in (m.get("targets") or [])[:8]:
                     facet = (t.get("facet") or "").strip()
                     keys = [
                         k for k in (t.get("emotions") or [])
                         if k in emotions.BY_KEY
                     ][:6]
                     if not (t.get("label") or "").strip() or facet not in REACTION_FACETS:
+                        continue
+                    # THE PEOPLE GATE. The label must name someone the library actually
+                    # credits, or it doesn't ship. Degrades exactly like `animals` on a
+                    # dog-less scene: the category is simply absent.
+                    if facet == "people" and not _people_label_ok(t["label"], cast_tokens):
                         continue
                     targets.append({
                         "key": f"m{i}t{len(targets)}",
@@ -2662,6 +2808,24 @@ Return ONLY the JSON object, nothing else.
             lines.append(f"  ({target_note})")
         lines.append(f"\nHow it hit him: {emo_label}")
 
+        # THE ONE FACET ALLOWED OUT OF THE CLIP. He picked a human being, not a shot.
+        # "god I love Gene Hackman" is a reaction to forty years of films that this beat
+        # merely occasioned — forcing it to describe only what's on screen yields "I like
+        # how he's sitting there", which is not what he meant and not what he'd send.
+        # Facet-gated deliberately, and in the USER prompt: every other facet keeps the
+        # be-specific-to-the-thing discipline byte-identically.
+        if target_facet == "people":
+            lines.append(
+                "\nTHIS IS ABOUT A PERSON, NOT A SHOT. He picked the ACTOR — the human "
+                "being — not something they do in this beat. He may be reacting to their "
+                "whole career, their face, their presence, the plain fact that it's THEM: "
+                "\"god I love Gene Hackman\", \"nobody else could have played this\", "
+                "\"I'd watch him read a menu\". Use the actor's REAL NAME exactly as given. "
+                "The beat is the occasion, not the subject — at most ONE option should be "
+                "about what they're doing in this shot. The third_person form must still "
+                "be about what TIM is doing (reacting), not a bare statement about the actor."
+            )
+
         # INTENSITY. At `normal` (level 2) with no shade/steer, the two blocks below add
         # nothing and the prompt is byte-identical to before — the common path can't regress.
         # At meh/WOW the "vary the manner" instruction is REPLACED by a fixed strength, so
@@ -2747,11 +2911,16 @@ Return ONLY the JSON object, nothing else.
         moment_why: str,
         steer: str,
         movie_title: str = "",
+        cast: Optional[list[dict[str, Any]]] = None,
     ) -> list[dict[str, Any]]:
         """Re-derive the THINGS worth reacting to in one beat, steered by his words.
 
         "No — Jonah Hill's timing" → targets focused on the performance, with the
         emotions ranked for each. Same shape as a draft moment's targets.
+
+        NOTE this call has NO VIDEO PART — it works from the scene description alone
+        and cannot see a face. Left to itself it will cheerfully invent an actor, so
+        `cast` is both the allow-list and the gate (same one the draft uses).
         """
         self._ensure_client()
         target_schema = {
@@ -2777,13 +2946,28 @@ Return ONLY the JSON object, nothing else.
         lines.append(f"\nThe beat: {moment_caption}")
         if moment_why:
             lines.append(f"  ({moment_why})")
+        retarget_cast_line = format_cast(cast, limit=8)
+        if retarget_cast_line:
+            lines.append(
+                f"\n{retarget_cast_line}\n"
+                "You are working from a DESCRIPTION here, not the picture. Use an actor's "
+                "name ONLY where the description makes it unambiguous who is in this beat. "
+                "Never infer a face you cannot see."
+            )
         lines.append(
             f"\nThe viewer said what he's reacting to IS: \"{steer.strip()[:200]}\"\n"
             "Give 3-6 concrete THINGS on screen in this beat that match what he means, "
             "each a thing that ACTUALLY HAPPENS in plain words (not a topic), spanning "
-            "the facets his words imply. ALWAYS include the characters he might mean, "
-            "named, and the story beat. For each, rank 4-6 emotion KEYS he might feel "
-            "about THAT thing, most likely first.\n\n"
+            "the facets his words imply. ALWAYS include the PEOPLE he might mean — by "
+            "ACTOR name where the cast list makes that certain, facet `people` — and the "
+            "story beat. The concrete facets (things, place, animals, wardrobe) only if "
+            "the beat actually contains one; never invent one to fill a category. "
+            "For each, rank 4-6 emotion KEYS he might feel about THAT thing, most likely "
+            "first.\n\n"
+            # This prompt never listed the facets — it leaned entirely on the schema
+            # enum, which gives the model names with no meanings attached. Fine at 10
+            # familiar craft terms; useless for `wardrobe` and `place`.
+            "The facets:\n" + _FACET_HINTS + "\n\n"
             "Emotion vocabulary — return KEYS from this list only:\n"
             + emotions.prompt_vocabulary()
         )
@@ -2810,10 +2994,15 @@ Return ONLY the JSON object, nothing else.
             raise GeminiError(f"retarget returned non-JSON: {(response.text or '')[:200]}") from e
 
         out = []
+        retarget_tokens = _cast_name_tokens(cast)
         for t in (parsed.get("targets") or [])[:6]:
             facet = (t.get("facet") or "").strip()
             label = (t.get("label") or "").strip()
             if not label or facet not in REACTION_FACETS:
+                continue
+            # Same people gate as the draft — and it matters more here, since this
+            # call is working blind from a description.
+            if facet == "people" and not _people_label_ok(label, retarget_tokens):
                 continue
             keys = [k for k in (t.get("emotions") or []) if k in emotions.BY_KEY][:6]
             out.append({
