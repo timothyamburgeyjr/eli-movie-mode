@@ -178,6 +178,40 @@ def build_payload(
     return body
 
 
+async def set_current_scene(ai_id: str, scene: str, *, timeout: float = 15.0) -> bool:
+    """Set a kin's PERSISTENT `current_scene` — where they are, what they're doing.
+
+    POST /v1/update-ai with only the fields we want changed; everything else on the
+    character (backstory, memory, directive) is untouched by omission. Kindroid caps
+    this field at 160 chars, so the caller composes to fit and we hard-truncate as a
+    backstop rather than let the API reject it.
+
+    BEST-EFFORT BY DESIGN. This is a nicety layered on top of a system that already
+    tells them the setting in every message — so a failure here must never take down
+    a movie start. Returns True/False and raises nothing.
+    """
+    scene = (scene or "").strip()
+    if not settings.kindroid_api_key or not ai_id or not scene:
+        return False
+    payload = {"ai_id": ai_id, "current_scene": scene[: settings.kindroid_scene_limit]}
+    headers = {
+        "Authorization": f"Bearer {settings.kindroid_api_key}",
+        "Content-Type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(settings.kindroid_update_url, json=payload, headers=headers)
+        if r.status_code >= 400:
+            log.warning("scene update for %s failed: HTTP %s %s",
+                        ai_id[:8], r.status_code, (r.text or "")[:160])
+            return False
+    except httpx.HTTPError as e:
+        log.warning("scene update for %s failed: %s", ai_id[:8], e)
+        return False
+    log.info("scene set for %s: %r", ai_id[:8], payload["current_scene"])
+    return True
+
+
 async def send_message(
     message: str,
     *,

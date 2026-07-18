@@ -32,7 +32,13 @@ import coordinator
 import emotions
 from database import db, row_to_dict, rows_to_list
 from gemini_brain import GeminiError, gemini_brain
-from kindroid_relay import KindroidError, build_payload, parse_reply, send_message
+from kindroid_relay import (
+    KindroidError,
+    build_payload,
+    parse_reply,
+    send_message,
+    set_current_scene,
+)
 from plex_monitor import plex_monitor
 import portraits
 import presence
@@ -455,6 +461,12 @@ async def _generate_briefing_card(session_id: str, movie_id: int, plex_data: dic
         setting_note = presence.briefing_note(
             venue, descriptions.get(venue or "", ""), people
         )
+        # SET THE SCENE ON THE CHARACTER ITSELF, not just in the message. This is the
+        # kin's standing "where I am / what I'm doing" in Kindroid — so it holds
+        # between turns and outside anything we send. Fire-and-forget: it's a nicety
+        # on top of a setting we already state every message, so a Kindroid hiccup
+        # here must never delay or break a movie start.
+        asyncio.create_task(_set_room_scene(room, plex_data, venue, people))
         await _send_to_kindroid_and_render(
             session_id,
             scene_narration=briefing_text,
@@ -465,6 +477,24 @@ async def _generate_briefing_card(session_id: str, movie_id: int, plex_data: dic
             show_typing=False,
             presence_override=setting_note,
         )
+
+
+async def _set_room_scene(room: list, plex_data: dict, venue, people: list[dict]) -> None:
+    """Push the standing scene onto every kin in the room, once, at movie start.
+
+    Concurrent and best-effort — one kin's failure doesn't touch the others, and none
+    of it can fail the briefing that's going out at the same time.
+    """
+    title = plex_data.get("display_title") or plex_data.get("title") or ""
+    scene = presence.scene_line(venue, people, title, limit=settings.kindroid_scene_limit)
+    if not scene:
+        return
+    results = await asyncio.gather(
+        *(set_current_scene(k.ai_id, scene) for k in room if getattr(k, "ai_id", None)),
+        return_exceptions=True,
+    )
+    ok = sum(1 for r in results if r is True)
+    log.info("scene pushed to %d/%d in the room: %r", ok, len(results), scene)
 
 
 async def _count_tim_exchanges(session_id: str) -> int:

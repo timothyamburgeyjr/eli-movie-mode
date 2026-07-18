@@ -108,6 +108,45 @@ def standing_line(venue_key: Optional[str], people: list[dict]) -> str:
     return ""
 
 
+def scene_line(
+    venue_key: Optional[str],
+    people: list[dict],
+    movie_title: str = "",
+    limit: int = 160,
+) -> str:
+    """The kin's PERSISTENT Kindroid `current_scene`: where they are, what they're at.
+
+    Kindroid caps this at 160 characters — genuinely tight — so it's assembled in
+    PRIORITY ORDER and the least important clause is the one that falls off the end:
+
+        1. that it's a movie night with Tim, and WHERE     (the anchor)
+        2. WHAT they're watching                            (changes per film)
+        3. WHO else is in the room                          (nice, not essential)
+
+    Third person, unlike the per-message presence line: that one is Tim speaking, so
+    "my dad" resolves through each kin's own memory. This one is a standing
+    description with no speaker attached, so "my dad" would be nobody in particular.
+    """
+    where = venue_phrase(venue_key)
+    film = (movie_title or "").strip()
+
+    if where:
+        base = f"Movie night with Tim {where}."
+    else:
+        base = "Movie night with Tim."
+    if film:
+        candidate = base[:-1] + f', watching "{film}".'
+        if len(candidate) <= limit:
+            base = candidate
+    if people:
+        who = _join_pov(people).replace("my ", "Tim's ")
+        verb = "is" if len(people) == 1 else "are"
+        candidate = f"{base} {who[0].upper() + who[1:]} {verb} here too."
+        if len(candidate) <= limit:
+            base = candidate
+    return base[:limit]
+
+
 def briefing_note(venue_key: Optional[str], venue_desc: str, people: list[dict]) -> str:
     """Richer one-time setting line for the briefing. Empty if nothing set."""
     where = venue_phrase(venue_key)

@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     # appends the previous kin's reaction, so the last kin in the circle carries
     # the fattest payload.
     kindroid_char_limit: int = 4000
+    # The kin's PERSISTENT scene field — where they are and what they're doing —
+    # set once per film rather than re-described in every message. Only the fields
+    # you send are changed; everything else on the character is left alone.
+    # /v1/update-info — verified live (2026-07). NOT "update-ai", which several
+    # secondhand sources claim and which 404s.
+    kindroid_update_url: str = "https://api.kindroid.ai/v1/update-info"
+    # Kindroid's own hard cap on current_scene. Not our headroom — their limit.
+    kindroid_scene_limit: int = 160
     gemini_daily_budget: int = 1000
 
     # Externally-visible URL for this app — needed when handing image URLs

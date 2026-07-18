@@ -74,6 +74,14 @@ Get-Content $log -Wait -Tail 15 -Encoding UTF8 | ForEach-Object {
         return
     }
 
+    # --- Their standing scene in Kindroid ---
+    if ($msg -match 'scene pushed to (\d+)/(\d+) in the room: (.*)$') {
+        Write-Line $time "SCENE" "Cyan" ("set for " + $Matches[1] + "/" + $Matches[2] + " kins")
+        Write-Note $Matches[3]
+        return
+    }
+    if ($msg -like 'scene set for*') { return }   # per-kin detail, the summary covers it
+
     # --- What we're watching ---
     if ($msg -match 'now watching|media change|briefing|Now watching') {
         Write-Line $time "MOVIE" "Cyan" $msg
