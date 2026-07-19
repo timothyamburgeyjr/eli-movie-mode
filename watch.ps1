@@ -59,8 +59,9 @@ Get-Content $log -Wait -Tail 15 -Encoding UTF8 | ForEach-Object {
     if ($msg -like '*AFC is enabled*')         { return }
     if ($msg -like '*mood ticker*')            { return }
     if ($msg -like '*application startup*')    { return }
-    # Byte-counting diagnostics that just restate the REPLY line above them.
+    # Byte-counting diagnostics that just restate the SEND/REPLY lines above them.
     if ($msg -like 'kindroid REPLY session=*') { return }
+    if ($msg -like 'kindroid SEND session=*')  { return }   # 'payload ->' says it better
     if ($msg -like 'kindroid JSON keys=*')     { return }
 
     # --- Who's in the film (tonight's new feature) ---
